@@ -1,4 +1,6 @@
 import React, { useState, useEffect, lazy, Suspense, useCallback } from 'react';
+import { ProductImage } from './components/ProductImage';
+import { Sofa, CookingPot, Cable, Smartphone, CarFront, Luggage, Laptop, Shirt, Footprints, Watch, Dumbbell, Gift } from 'lucide-react';
 import { 
   Sparkles, ShieldCheck, Truck, RotateCcw, ArrowRight, 
   Star, ShoppingBag, Eye, Heart, Filter, ChevronRight, CheckCircle2,
@@ -36,6 +38,25 @@ const ShopWalkExperience = lazy(() => import('./components/store3d/ShopWalkExper
 import { cartLineKey } from './components/CartDrawer';
 
 import { Product, Category, CartItem, User, Supplier, Review } from './types';
+
+
+function categoryIcon(slug: string) {
+  const s = slug.toLowerCase();
+  if (s.includes('home')) return Sofa;
+  if (s.includes('kitchen')) return CookingPot;
+  if (s.includes('electronic')) return Cable;
+  if (s.includes('mobile')) return Smartphone;
+  if (s.includes('car')) return CarFront;
+  if (s.includes('travel')) return Luggage;
+  if (s.includes('office') || s.includes('study')) return Laptop;
+  if (s.includes('fashion') || s.includes('cloth')) return Shirt;
+  if (s.includes('shoe') || s.includes('foot')) return Footprints;
+  if (s.includes('watch')) return Watch;
+  if (s.includes('beauty') || s.includes('care')) return Sparkles;
+  if (s.includes('fitness') || s.includes('sport')) return Dumbbell;
+  if (s.includes('gift')) return Gift;
+  return Tag;
+}
 
 export default function App() {
   // Navigation & View States
@@ -397,9 +418,9 @@ export default function App() {
                 </div>
                 <div className="grid grid-cols-2 gap-3 lg:col-span-6">
                   {products.filter((p) => p.is_featured).slice(0, 4).map((p) => (
-                    <button key={p.id} onClick={() => setQuickViewProduct(p)} className="group overflow-hidden rounded-2xl border border-white/10 bg-white/5 text-left transition hover:border-[#c8a96a]/60">
+                    <button key={p.id} onClick={() => setQuickViewProduct(p)} className="sw-rise group overflow-hidden rounded-2xl border border-white/10 bg-white/5 text-left transition duration-300 hover:-translate-y-1 hover:border-[#c8a96a]/60 hover:shadow-[0_20px_50px_-20px_rgba(200,169,106,0.5)]">
                       <div className="aspect-[4/3] overflow-hidden bg-white/5">
-                        {p.primary_image && <img src={p.primary_image} alt={p.name} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />}
+                        <ProductImage src={p.primary_image} alt={p.name} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
                       </div>
                       <div className="p-3">
                         <div className="line-clamp-1 text-xs font-semibold">{p.name}</div>
@@ -427,36 +448,32 @@ export default function App() {
                 {selectedCategory && (
                   <button
                     onClick={() => setSelectedCategory(null)}
-                    className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+                    className="text-xs font-semibold text-[#8a6a2f] hover:text-[#1a1712]"
                   >
-                    View All Categories &rarr;
+                    Show all categories &rarr;
                   </button>
                 )}
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-                {categories.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => setSelectedCategory(selectedCategory === c.slug ? null : c.slug)}
-                    className={`group p-3 rounded-2xl border transition text-center flex flex-col items-center justify-between ${
-                      selectedCategory === c.slug
-                        ? 'border-blue-600 bg-blue-50/50 ring-2 ring-blue-100 shadow-xs'
-                        : 'border-slate-200/80 bg-white hover:border-slate-300 hover:shadow-xs'
-                    }`}
-                  >
-                    <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-100 mb-2 relative">
-                      <img
-                        src={c.image_url || 'https://images.unsplash.com/photo-1513519245088-0e12902e5a38?auto=format&fit=crop&w=200&q=80'}
-                        alt={c.name}
-                        className="w-full h-full object-cover group-hover:scale-110 transition duration-300"
-                      />
-                    </div>
-                    <span className="text-[11px] font-bold text-slate-800 group-hover:text-blue-600 line-clamp-1">
-                      {c.name}
-                    </span>
-                  </button>
-                ))}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+                {categories.map((c) => {
+                  const Icon = categoryIcon(c.slug);
+                  const active = selectedCategory === c.slug;
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => setSelectedCategory(active ? null : c.slug)}
+                      className={`group flex items-center gap-3 rounded-2xl border p-3 text-left transition duration-300 hover:-translate-y-0.5 ${
+                        active ? 'border-[#c8a96a] bg-[#faf6ec] shadow-sm' : 'border-slate-200/80 bg-white hover:border-[#e2c88f] hover:shadow-md'
+                      }`}
+                    >
+                      <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition ${active ? 'bg-[#c8a96a] text-[#1a1712]' : 'bg-[#1a1712] text-[#e9cf92] group-hover:bg-[#c8a96a] group-hover:text-[#1a1712]'}`}>
+                        <Icon className="h-5 w-5" />
+                      </span>
+                      <span className="text-xs font-bold leading-snug text-slate-800">{c.name}</span>
+                    </button>
+                  );
+                })}
               </div>
             </section>
           )}
@@ -515,7 +532,7 @@ export default function App() {
                     type="checkbox"
                     checked={inStockOnly}
                     onChange={(e) => setInStockOnly(e.target.checked)}
-                    className="rounded text-blue-600 focus:ring-blue-500"
+                    className="rounded accent-[#c8a96a]"
                   />
                   <span>In Stock Only</span>
                 </label>
@@ -544,7 +561,7 @@ export default function App() {
                       setSelectedBrand('all');
                       setInStockOnly(false);
                     }}
-                    className="px-4 py-2 bg-slate-900 hover:bg-blue-600 text-white rounded-xl text-xs font-semibold transition"
+                    className="px-4 py-2 bg-[#1a1712] hover:bg-[#c8a96a] hover:text-[#1a1712] text-white rounded-xl text-xs font-semibold transition"
                   >
                     Reset All Filters
                   </button>
@@ -637,6 +654,7 @@ export default function App() {
           handleBuyNow(prod, qty);
           setQuickViewProduct(null);
         }}
+        onSelectProduct={(p) => setQuickViewProduct(p)}
         onToggleWishlist={handleToggleWishlist}
         isWishlisted={quickViewProduct ? wishlistIds.includes(quickViewProduct.id) : false}
       />

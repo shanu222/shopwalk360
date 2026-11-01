@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ProductImage } from './ProductImage';
 import { X, Trash2, Plus, Minus, ShoppingBag, ArrowRight, Tag, Truck, Check } from 'lucide-react';
 import { CartItem } from '../types';
 
@@ -81,7 +82,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <ShoppingBag className="w-5 h-5 text-blue-600" />
+            <ShoppingBag className="w-5 h-5 text-[#8a6a2f]" />
             <h2 className="text-base font-bold text-slate-900">Your Shopping Cart</h2>
             <span className="text-xs bg-slate-100 font-bold px-2 py-0.5 rounded-full text-slate-700">
               {cart.reduce((s, i) => s + i.quantity, 0)} items
@@ -96,21 +97,21 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         </div>
 
         {/* Free Shipping Meter */}
-        <div className="bg-blue-50/70 px-5 py-3 border-b border-blue-100">
+        <div className="bg-[#faf6ec] px-5 py-3 border-b border-[#eadfc4]">
           <div className="flex items-center justify-between text-xs font-semibold mb-1.5">
-            <span className="flex items-center gap-1.5 text-blue-900">
-              <Truck className="w-3.5 h-3.5 text-blue-600" />
+            <span className="flex items-center gap-1.5 text-[#5c4a22]">
+              <Truck className="w-3.5 h-3.5 text-[#8a6a2f]" />
               {amountNeededForFree === 0 ? (
                 <span className="text-emerald-700 font-bold">You unlocked FREE Nationwide Delivery! 🎉</span>
               ) : (
                 <span>Add PKR {amountNeededForFree.toLocaleString()} more for FREE Delivery</span>
               )}
             </span>
-            <span className="text-blue-800">{progressPercent}%</span>
+            <span className="text-[#8a6a2f]">{progressPercent}%</span>
           </div>
           <div className="w-full h-1.5 bg-blue-200/60 rounded-full overflow-hidden">
             <div
-              className="h-full bg-blue-600 transition-all duration-500 rounded-full"
+              className="h-full bg-[#1a1712] transition-all duration-500 rounded-full"
               style={{ width: `${progressPercent}%` }}
             ></div>
           </div>
@@ -129,7 +130,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               </p>
               <button
                 onClick={onClose}
-                className="px-5 py-2.5 bg-slate-900 hover:bg-blue-600 text-white rounded-xl text-xs font-semibold transition"
+                className="px-5 py-2.5 bg-slate-900 hover:bg-[#2c271f] text-white rounded-xl text-xs font-semibold transition"
               >
                 Start Shopping
               </button>
@@ -143,9 +144,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   key={cartLineKey(item)}
                   className="flex gap-3 p-3 rounded-2xl border border-slate-200/80 bg-white hover:border-slate-300 transition"
                 >
-                  <img
-                    src={item.product.primary_image || 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=400&q=80'}
+                  <ProductImage
+                    src={item.product.primary_image}
                     alt={item.product.name}
+                    compact
                     className="w-18 h-18 rounded-xl object-cover bg-slate-100 shrink-0"
                   />
                   <div className="flex-1 flex flex-col justify-between">
@@ -230,14 +232,14 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       placeholder="Coupon (e.g. WELCOME10)"
                       value={couponInput}
                       onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
-                      className="w-full text-xs uppercase px-3 py-2 bg-white border border-slate-300 rounded-xl focus:border-blue-500 focus:outline-hidden"
+                      className="w-full text-xs uppercase px-3 py-2 bg-white border border-slate-300 rounded-xl focus:border-[#c8a96a] focus:outline-hidden"
                     />
                     <Tag className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5" />
                   </div>
                   <button
                     type="submit"
                     disabled={couponLoading || !couponInput.trim()}
-                    className="px-3.5 py-2 bg-slate-900 hover:bg-blue-600 disabled:bg-slate-300 text-white rounded-xl text-xs font-semibold transition"
+                    className="px-3.5 py-2 bg-slate-900 hover:bg-[#2c271f] disabled:bg-slate-300 text-white rounded-xl text-xs font-semibold transition"
                   >
                     {couponLoading ? '...' : 'Apply'}
                   </button>
@@ -268,7 +270,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               </div>
               <div className="flex justify-between text-sm font-black text-slate-900 pt-2 border-t border-slate-200">
                 <span>Order Total</span>
-                <span className="text-base text-blue-700">PKR {total.toLocaleString()}</span>
+                <span className="text-base text-[#8a6a2f]">PKR {total.toLocaleString()}</span>
               </div>
             </div>
 
@@ -277,7 +279,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 onClose();
                 onProceedToCheckout(appliedCoupon || undefined, discountAmount);
               }}
-              className="w-full py-3 px-4 bg-slate-900 hover:bg-blue-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition active:scale-[0.99]"
+              className="w-full py-3 px-4 bg-slate-900 hover:bg-[#2c271f] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition active:scale-[0.99]"
             >
               Proceed to Checkout
               <ArrowRight className="w-4 h-4" />

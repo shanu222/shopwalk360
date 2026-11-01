@@ -209,7 +209,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 )}
                 <div className="flex justify-between text-sm font-bold text-slate-900 pt-1">
                   <span>Grand Total:</span>
-                  <span className="text-blue-700">
+                  <span className="text-[#8a6a2f]">
                     PKR {completedOrder.total_amount.toLocaleString()}
                   </span>
                 </div>
@@ -245,7 +245,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 </button>
                 <button
                   onClick={onClose}
-                  className="px-6 py-2.5 bg-slate-900 hover:bg-blue-600 text-white rounded-xl text-xs font-bold transition"
+                  className="px-6 py-2.5 bg-slate-900 hover:bg-[#2c271f] text-white rounded-xl text-xs font-bold transition"
                 >
                   Continue Shopping
                 </button>
@@ -278,7 +278,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       placeholder="e.g. Asad Rehman"
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
-                      className="w-full text-xs px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-blue-500 focus:outline-hidden"
+                      className="w-full text-xs px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-[#c8a96a] focus:outline-hidden"
                     />
                   </div>
                   <div>
@@ -291,7 +291,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       placeholder="+92 300 1234567"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
-                      className="w-full text-xs px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-blue-500 focus:outline-hidden"
+                      className="w-full text-xs px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-[#c8a96a] focus:outline-hidden"
                     />
                   </div>
                   <div>
@@ -304,7 +304,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       placeholder="name@example.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="w-full text-xs px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-blue-500 focus:outline-hidden"
+                      className="w-full text-xs px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-[#c8a96a] focus:outline-hidden"
                     />
                   </div>
                 </div>
@@ -327,7 +327,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       placeholder="e.g. House 42, Street 15, Sector F-8/2"
                       value={address}
                       onChange={(e) => setAddress(e.target.value)}
-                      className="w-full text-xs px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-blue-500 focus:outline-hidden"
+                      className="w-full text-xs px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-[#c8a96a] focus:outline-hidden"
                     />
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -338,11 +338,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       <select
                         value={city}
                         onChange={(e) => setCity(e.target.value)}
-                        className="w-full text-xs px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-blue-500 focus:outline-hidden font-medium"
+                        className="w-full text-xs px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-[#c8a96a] focus:outline-hidden font-medium"
                       >
-                        <option value="Lahore">Lahore (Same-Day / 24h Express)</option>
-                        <option value="Karachi">Karachi (24-48h)</option>
-                        <option value="Islamabad">Islamabad (24h)</option>
+                        <option value="Lahore">Lahore</option>
+                        <option value="Karachi">Karachi</option>
+                        <option value="Islamabad">Islamabad</option>
                         <option value="Rawalpindi">Rawalpindi</option>
                         <option value="Faisalabad">Faisalabad</option>
                         <option value="Sialkot">Sialkot</option>
@@ -360,7 +360,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       <select
                         value={province}
                         onChange={(e) => setProvince(e.target.value)}
-                        className="w-full text-xs px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-blue-500 focus:outline-hidden"
+                        className="w-full text-xs px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-[#c8a96a] focus:outline-hidden"
                       >
                         <option value="Punjab">Punjab</option>
                         <option value="Sindh">Sindh</option>
@@ -380,7 +380,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         placeholder="e.g. 54000"
                         value={postalCode}
                         onChange={(e) => setPostalCode(e.target.value)}
-                        className="w-full text-xs px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-blue-500 focus:outline-hidden"
+                        className="w-full text-xs px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-[#c8a96a] focus:outline-hidden"
                       />
                     </div>
                   </div>
@@ -393,7 +393,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       placeholder="e.g. Call before delivery, leave with guard if not at home"
                       value={deliveryInstructions}
                       onChange={(e) => setDeliveryInstructions(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-xl focus:border-blue-500 focus:outline-hidden"
+                      className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-xl focus:border-[#c8a96a] focus:outline-hidden"
                     />
                   </div>
                 </div>
@@ -411,7 +411,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     onClick={() => setPaymentMethod('COD')}
                     className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between ${
                       paymentMethod === 'COD'
-                        ? 'border-blue-600 bg-blue-50/50 ring-2 ring-blue-100'
+                        ? 'border-[#c8a96a] bg-[#faf6ec] ring-2 ring-[#e2c88f]'
                         : 'border-slate-200 hover:border-slate-300'
                     }`}
                   >
@@ -431,12 +431,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     onClick={() => setPaymentMethod('Bank Transfer')}
                     className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between ${
                       paymentMethod === 'Bank Transfer'
-                        ? 'border-blue-600 bg-blue-50/50 ring-2 ring-blue-100'
+                        ? 'border-[#c8a96a] bg-[#faf6ec] ring-2 ring-[#e2c88f]'
                         : 'border-slate-200 hover:border-slate-300'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <Building2 className="w-5 h-5 text-blue-600" />
+                      <Building2 className="w-5 h-5 text-[#8a6a2f]" />
                     </div>
                     <span className="text-xs font-bold text-slate-900 block">Direct Bank Transfer</span>
                     <span className="text-[11px] text-slate-500">{storeSettings.bank_name ? `${storeSettings.bank_name} · IBAN transfer` : 'IBAN transfer'}</span>
@@ -471,7 +471,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 )}
                 <div className="flex justify-between text-sm font-black text-slate-900 pt-2 border-t border-slate-200">
                   <span>Grand Total to Pay:</span>
-                  <span className="text-base text-blue-700">
+                  <span className="text-base text-[#8a6a2f]">
                     PKR {grandTotal.toLocaleString()}
                   </span>
                 </div>
@@ -481,7 +481,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3.5 px-6 rounded-xl bg-slate-900 hover:bg-blue-600 disabled:bg-slate-300 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-[0.99]"
+                className="w-full py-3.5 px-6 rounded-xl bg-slate-900 hover:bg-[#2c271f] disabled:bg-slate-300 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-[0.99]"
               >
                 {loading ? 'Processing & Reserving Inventory...' : `Confirm Order (PKR ${grandTotal.toLocaleString()})`}
                 <ArrowRight className="w-4 h-4" />

@@ -67,6 +67,14 @@ function zoneLabel(zone: Zone | null, departments: StoreDepartment[]) {
 export const StoreHUD: React.FC<Props> = (p) => {
   const [panel, setPanel] = useState<null | 'directory' | 'map' | 'quick' | 'settings' | 'help' | 'search'>(p.initialPanel ?? null);
   const [query, setQuery] = useState('');
+  const [mapHover, setMapHover] = useState<number | null>(null);
+  const [mapQuery, setMapQuery] = useState('');
+  const [wideMap, setWideMap] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 768);
+  useEffect(() => {
+    const on = () => setWideMap(window.innerWidth >= 768);
+    window.addEventListener('resize', on);
+    return () => window.removeEventListener('resize', on);
+  }, []);
   const [quickDept, setQuickDept] = useState<string | null>(null);
   const [announce, setAnnounce] = useState('');
 
@@ -289,7 +297,7 @@ export const StoreHUD: React.FC<Props> = (p) => {
 
       {/* PANELS */}
       {panel && panel !== 'search' && (
-        <div className="pointer-events-auto absolute inset-x-3 bottom-[118px] top-[70px] z-40 flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#171513]/95 shadow-2xl backdrop-blur-xl md:inset-x-auto md:bottom-6 md:left-[76px] md:top-20 md:w-[520px] lg:left-[170px]">
+        <div className={`pointer-events-auto absolute inset-x-3 bottom-[118px] top-[70px] z-40 flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#171513]/95 shadow-2xl backdrop-blur-xl md:inset-x-auto md:bottom-6 md:left-[76px] md:top-20 lg:left-[170px] ${panel === 'map' ? 'md:right-6 lg:right-auto lg:w-[min(1100px,calc(100vw-200px))]' : 'md:w-[520px]'}`}>
           <div className="flex items-center justify-between border-b border-white/10 px-5 py-3.5">
             <div className="text-sm font-bold">
               {panel === 'directory' && 'Department directory'}
@@ -321,19 +329,56 @@ export const StoreHUD: React.FC<Props> = (p) => {
               </div>
             )}
             {panel === 'map' && (
-              <div className="flex h-full flex-col gap-3">
-                <p className="text-xs text-white/55">Tap a department to walk there, or tap any open floor point.</p>
-                <div className="flex min-h-0 flex-1 justify-center">
-                  <StoreMap
-                    departments={p.departments}
-                    shelves={p.shelves}
-                    player={p.player}
-                    route={p.route}
-                    highlightShelfId={p.highlightShelfId}
-                    onPickDept={(slot) => { p.onDept(slot, 'walk'); setPanel(null); }}
-                    onPickPoint={(x, z) => { p.onMapPoint(x, z); setPanel(null); }}
-                    className="h-full max-h-[60vh] w-auto"
+              <div className="flex h-full min-h-0 flex-col gap-3">
+                <div className="relative flex min-h-0 flex-1 flex-col rounded-2xl bg-[#0f0e0c] p-2 sm:p-3">
+                  <div className="flex min-h-0 flex-1 items-center justify-center">
+                    <StoreMap
+                      departments={p.departments}
+                      shelves={p.shelves}
+                      player={p.player}
+                      route={p.route}
+                      highlightShelfId={p.highlightShelfId}
+                      highlightSlot={mapHover}
+                      onHoverDept={setMapHover}
+                      landscape={wideMap}
+                      onPickDept={(slot) => { p.onDept(slot, 'walk'); setPanel(null); }}
+                      onPickPoint={(x, z) => { p.onMapPoint(x, z); setPanel(null); }}
+                      className="h-full max-h-full w-full"
+                    />
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px] text-white/70">
+                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-green-500" /> You are here</span>
+                    <span className="flex items-center gap-1.5"><span className="h-0 w-4 border-t-2 border-dashed border-[#f3dfb4]" /> Your route</span>
+                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-1 rounded bg-[#f6f1e7]" /> Doorway</span>
+                    <span className="hidden sm:inline">Tap a department or any open floor point to walk there</span>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+                  <input
+                    value={mapQuery}
+                    onChange={(e) => setMapQuery(e.target.value)}
+                    placeholder="Find a department"
+                    aria-label="Find a department"
+                    className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:border-[#c8a96a] focus:outline-none sm:w-52"
                   />
+                  <div className="flex max-h-24 flex-1 flex-wrap gap-1.5 overflow-y-auto">
+                    {sortedDepts
+                      .filter((d) => !mapQuery || d.name.toLowerCase().includes(mapQuery.toLowerCase()))
+                      .map((d) => (
+                        <button
+                          key={d.id}
+                          onMouseEnter={() => setMapHover(d.slot_index ?? null)}
+                          onMouseLeave={() => setMapHover(null)}
+                          onFocus={() => setMapHover(d.slot_index ?? null)}
+                          onBlur={() => setMapHover(null)}
+                          onClick={() => { p.onDept(d.slot_index ?? 0, 'walk'); setPanel(null); }}
+                          className={`flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3 text-xs font-semibold text-white transition ${mapHover === d.slot_index ? 'bg-white/20' : 'bg-white/[0.07] hover:bg-white/15'}`}
+                        >
+                          <span className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-black" style={{ backgroundColor: d.theme_color }}>{formatDeptNumber(d.aisle_number)}</span>
+                          {d.name}
+                        </button>
+                      ))}
+                  </div>
                 </div>
               </div>
             )}

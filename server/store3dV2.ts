@@ -52,6 +52,8 @@ export function migrateStoreExperienceV2() {
   addColumn('products', 'wearable_slot', 'TEXT'); // top | bottom | shoes | watch | glasses | bag
   addColumn('products', 'color_hex_map', 'TEXT'); // {"Navy":"#1f2a44"}
   addColumn('products', 'is_sample', 'INTEGER DEFAULT 0');
+  addColumn('products', 'model_scale', 'REAL DEFAULT 1'); // multiplier on the fitted size
+  addColumn('products', 'model_rotation_deg', 'REAL DEFAULT 0'); // turn on the display
 
   // Departments become real rooms in the galleria
   addColumn('store_departments', 'slot_index', 'INTEGER');
@@ -320,7 +322,7 @@ store3dRouter.get('/store3d/v2/layout', (_req, res) => {
     const shelves = db.prepare(`
       SELECT s.*, p.name AS product_name, p.slug AS product_slug, p.sku AS product_sku, p.regular_price, p.discount_price,
         p.cost_price, p.stock_quantity, p.brand AS product_brand, p.short_description, p.tryon_type AS product_tryon_type,
-        p.model_preset, p.model_3d_url, p.wearable_slot, p.color_options AS product_color_options, p.color_hex_map,
+        p.model_preset, p.model_3d_url, p.model_scale, p.model_rotation_deg, p.wearable_slot, p.color_options AS product_color_options, p.color_hex_map,
         p.dimensions_json, p.demo_video_url AS product_video_url, p.demo_video_type AS product_video_type,
         p.demo_video_poster AS product_video_poster, p.is_sample,
         (SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) AS primary_image,
@@ -626,7 +628,7 @@ store3dRouter.get('/admin/products/:id/experience', requireAdmin, (req, res) => 
 });
 
 const experienceFields = [
-  'dimensions_json', 'model_3d_url', 'model_preset', 'demo_video_url', 'demo_video_type', 'demo_video_poster', 'demo_video_captions', 'demo_video_title',
+  'dimensions_json', 'model_3d_url', 'model_scale', 'model_rotation_deg', 'model_preset', 'demo_video_url', 'demo_video_type', 'demo_video_poster', 'demo_video_captions', 'demo_video_title',
   'features', 'in_the_box', 'usage_instructions', 'care_instructions', 'ingredients', 'wearable_slot', 'color_hex_map', 'tryon_type',
   'color_options', 'size_options', 'specifications', 'warranty', 'weight_kg',
 ] as const;

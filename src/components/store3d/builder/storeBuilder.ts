@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { buildCenterpiece } from './centerpiece';
 import {
   StaticBatcher, std, emissive, glass, mat, marbleTexture, terrazzoTexture, woodTexture, concreteTexture, carpetTexture,
   plasterTexture, flutedTexture, rubberTexture, lightPoolTexture, contactShadowTexture,
@@ -35,6 +36,8 @@ export interface VideoScreen {
 
 export interface BuiltStore {
   root: THREE.Group;
+  /** per-frame environmental animation (lobby centrepiece etc.) */
+  animate: (t: number, dt: number) => void;
   colliders: Rect[];
   doors: { left: THREE.Object3D; right: THREE.Object3D; closedHalf: number; openHalf: number };
   targets: InteractiveTarget[];
@@ -336,9 +339,9 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
       const pot = new THREE.CylinderGeometry(0.55, 0.42, 0.9, 24);
       lob.add(pot, std('#d9d4ca', 0.7), x, 0.45, z);
       pot.dispose();
-      [[0, 1.4, 0, 0.7], [0.3, 1.9, 0.1, 0.5], [-0.25, 1.75, -0.15, 0.55]].forEach(([dx, y, dz, r]) => {
-        const f = new THREE.IcosahedronGeometry(r, 1);
-        lob.add(f, std('#4c6a40', 0.9), x + dx, y, z + dz);
+      [[0, 1.4, 0, 0.7, '#3f6b3a'], [0.3, 1.95, 0.1, 0.5, '#4c7a43'], [-0.25, 1.8, -0.15, 0.55, '#45733f']].forEach(([dx, y, dz, r, c]) => {
+        const f = new THREE.IcosahedronGeometry(r as number, 3);
+        lob.add(f, std(c as string, 0.85), x + (dx as number), y as number, z + (dz as number));
         f.dispose();
       });
       wallC(x - 0.7, x + 0.7, z - 0.7, z + 0.7);
@@ -360,6 +363,12 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     });
   }
   root.add(lob.build('lobby'));
+
+  // animated centrepiece on the lobby medallion
+  const centre = buildCenterpiece({ x: 0, z: 27.5, low, brand: opts.storeName || 'ShopWalk 360', ceilingY: STORE.lobbyHeight });
+  root.add(centre.group);
+  disposables.push({ dispose: centre.dispose } as any);
+  wallC(-centre.radius, centre.radius, 27.5 - centre.radius, 27.5 + centre.radius);
 
   // lobby screens (unique textures)
   const addScreen = (t: THREE.Texture, w: number, h: number, x: number, y: number, z: number, ry = 0) => {
@@ -440,9 +449,11 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
         const pot = new THREE.CylinderGeometry(0.5, 0.4, 0.8, 24);
         prom.add(pot, std('#d9d4ca', 0.7), 0, 0.4, z + dz);
         pot.dispose();
-        [[0, 1.35, 0, 0.62], [0.25, 1.8, 0.1, 0.45]].forEach(([dx, y, ddz, r]) => {
-          const f = new THREE.IcosahedronGeometry(r, 1);
-          prom.add(f, std('#4c6a40', 0.9), dx, y, z + dz + ddz);
+        // clipped topiary: stacked spheres on a brass collar
+        prom.add(new THREE.CylinderGeometry(0.52, 0.52, 0.05, 32), std('#b48e57', 0.3, 0.9), 0, 0.82, z + dz);
+        [[0, 1.3, 0.56, '#3f6b3a'], [0, 1.95, 0.4, '#4c7a43'], [0, 2.42, 0.26, '#5a8a4c']].forEach(([dx, y, r, c]) => {
+          const f = new THREE.IcosahedronGeometry(r as number, 3);
+          prom.add(f, std(c as string, 0.85), dx as number, y as number, z + dz);
           f.dispose();
         });
         wallC(-0.6, 0.6, z + dz - 0.6, z + dz + 0.6);
@@ -721,6 +732,7 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     targets,
     hitGroup,
     videoScreens,
+    animate: (t: number, dt: number) => centre.update(t, dt),
     roomLighting,
     deptBySlot,
     dispose: () => {

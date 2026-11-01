@@ -1,5 +1,6 @@
 import React from 'react';
-import { Heart, ShoppingBag, Star, CheckCircle, Shield, Eye } from 'lucide-react';
+import { ProductImage } from './ProductImage';
+import { Heart, ShoppingBag, Star, CheckCircle, Eye } from 'lucide-react';
 import { Product } from '../types';
 
 interface ProductCardProps {
@@ -27,14 +28,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   const isOutOfStock = product.stock_quantity <= 0;
 
   return (
-    <div className="group relative bg-white rounded-2xl border border-slate-200/80 hover:border-slate-300 hover:shadow-xl transition-all duration-300 flex flex-col overflow-hidden">
+    <div className="sw-rise group relative bg-white rounded-2xl border border-slate-200/80 hover:-translate-y-1 hover:border-[#e2c88f] hover:shadow-[0_20px_40px_-20px_rgba(26,23,18,0.35)] transition-all duration-300 flex flex-col overflow-hidden">
       {/* Image Container with Badges */}
       <div className="relative aspect-square w-full bg-slate-100 overflow-hidden cursor-pointer" onClick={() => onQuickView(product)}>
-        <img
-          src={product.primary_image || 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=800&q=80'}
+        <ProductImage
+          src={product.primary_image}
           alt={product.name}
           className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
-          loading="lazy"
         />
 
         {/* Top Badges */}
@@ -45,8 +45,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             </span>
           )}
           {product.is_featured === 1 && (
-            <span className="bg-blue-600 text-white font-medium text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full shadow-xs">
-              Curated Choice
+            <span className="bg-[#1a1712] text-[#e9cf92] font-semibold text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full shadow-xs">
+              Featured
             </span>
           )}
         </div>
@@ -69,7 +69,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         </button>
 
         {/* Quick View Overlay Button */}
-        <div className="absolute inset-x-0 bottom-3 px-3 hidden group-hover:flex justify-center transition-all duration-300">
+        <div className="absolute inset-x-0 bottom-3 px-3 flex justify-center translate-y-3 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100 focus-within:translate-y-0 focus-within:opacity-100">
           <button
             type="button"
             onClick={(e) => {
@@ -78,8 +78,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             }}
             className="w-full bg-white/95 hover:bg-white text-slate-800 text-xs font-semibold py-2 px-3 rounded-xl shadow-lg border border-slate-200 flex items-center justify-center gap-1.5 backdrop-blur-xs transition"
           >
-            <Eye className="w-3.5 h-3.5 text-blue-600" />
-            Quick Inspect & Specs
+            <Eye className="w-3.5 h-3.5 text-[#a8823d]" />
+            Quick view
           </button>
         </div>
       </div>
@@ -88,20 +88,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       <div className="p-4 flex-1 flex flex-col justify-between">
         <div>
           {/* Category & Verified Source origin */}
-          <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1.5">
-            <span className="font-medium text-blue-700 uppercase tracking-wide">
-              {product.category_name || 'Curated'}
-            </span>
-            <span className="flex items-center gap-1 text-slate-600">
-              <Shield className="w-3 h-3 text-emerald-600" />
-              Verified Sourced
-            </span>
-          </div>
+          {product.category_name && (
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#a8823d]">{product.category_name}</div>
+          )}
 
           {/* Title */}
           <h3
             onClick={() => onQuickView(product)}
-            className="font-semibold text-sm text-slate-900 group-hover:text-blue-600 transition line-clamp-2 cursor-pointer leading-snug mb-2"
+            className="font-semibold text-sm text-slate-900 group-hover:text-[#8a6a2f] transition line-clamp-2 cursor-pointer leading-snug mb-2"
             title={product.name}
           >
             {product.name}
@@ -160,11 +154,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             className={`w-full py-2.5 px-4 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition ${
               isOutOfStock
                 ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                : 'bg-slate-900 hover:bg-blue-600 text-white shadow-xs active:scale-[0.98]'
+                : 'bg-[#1a1712] hover:bg-[#c8a96a] hover:text-[#1a1712] text-white shadow-xs active:scale-[0.98]'
             }`}
           >
             <ShoppingBag className="w-3.5 h-3.5" />
-            {isOutOfStock ? 'Temporarily Unavailable' : 'Add to Cart'}
+            {isOutOfStock ? 'Sold out' : 'Add to basket'}
           </button>
         </div>
       </div>

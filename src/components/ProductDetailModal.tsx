@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { ProductImage as ProductPhoto } from './ProductImage';
+import { DemoVideo } from './store3d/product/DemoVideo';
 import { X, Star, ShoppingBag, ShieldCheck, Truck, RotateCcw, Heart, Check, Plus, Minus, Info } from 'lucide-react';
 import { Product, ProductImage, Review } from '../types';
 
@@ -10,6 +12,7 @@ interface ProductDetailModalProps {
   onBuyNow: (product: Product, quantity: number) => void;
   onToggleWishlist: (productId: string) => void;
   isWishlisted: boolean;
+  onSelectProduct?: (p: Product) => void;
 }
 
 export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
@@ -20,10 +23,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   onBuyNow,
   onToggleWishlist,
   isWishlisted,
+  onSelectProduct,
 }) => {
   const [selectedImage, setSelectedImage] = useState<string>('');
   const [images, setImages] = useState<ProductImage[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [full, setFull] = useState<any>(null);
+  const [related, setRelated] = useState<Product[]>([]);
   const [quantity, setQuantity] = useState<number>(1);
   const [activeTab, setActiveTab] = useState<'details' | 'specs' | 'reviews'>('details');
 
@@ -39,6 +45,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     if (!product || !isOpen) return;
 
     setSelectedImage(product.primary_image || '');
+    setFull(null);
+    setRelated([]);
     setQuantity(1);
     setActiveTab('details');
 
@@ -46,6 +54,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     fetch(`/api/products/${product.slug || product.id}`)
       .then((res) => res.json())
       .then((data) => {
+        setFull(data.product || null);
+        setRelated(Array.isArray(data.related) ? data.related : []);
         if (data.images && data.images.length > 0) {
           setImages(data.images);
           setSelectedImage(data.images[0].image_url);
@@ -137,10 +147,12 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             {/* Left: Gallery & Zoom Preview */}
             <div className="flex flex-col gap-4">
               <div className="relative aspect-square w-full rounded-2xl bg-slate-100 overflow-hidden border border-slate-200">
-                <img
+                <ProductPhoto
+                  key={selectedImage || product.primary_image || 'none'}
                   src={selectedImage || product.primary_image}
                   alt={product.name}
-                  className="w-full h-full object-cover object-center transition-all duration-300"
+                  loading="eager"
+                  className="w-full h-full object-cover object-center transition-all duration-300 animate-[fadeIn_.3s_ease]"
                 />
                 {hasDiscount && (
                   <span className="absolute top-3 left-3 bg-rose-500 text-white font-bold text-xs px-2.5 py-1 rounded-full shadow-md">
@@ -158,32 +170,22 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                       onClick={() => setSelectedImage(img.image_url)}
                       className={`relative w-16 h-16 rounded-xl overflow-hidden border-2 transition shrink-0 ${
                         selectedImage === img.image_url
-                          ? 'border-blue-600 ring-2 ring-blue-100'
+                          ? 'border-[#c8a96a] ring-2 ring-[#e2c88f]'
                           : 'border-slate-200 hover:border-slate-400'
                       }`}
                     >
-                      <img src={img.image_url} alt="" className="w-full h-full object-cover" />
+                      <ProductPhoto src={img.image_url} alt="" compact className="w-full h-full object-cover" />
                     </button>
                   ))}
                 </div>
               )}
 
-              {/* Direct Sourcing Guarantee Callout */}
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex items-start gap-3">
-                <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-                <div className="text-xs text-slate-600">
-                  <span className="font-semibold text-slate-900 block mb-0.5">
-                    Direct Sourced & Inspected
-                  </span>
-                  Procured directly from audited manufacturers and wholesalers. Inspected for material authenticity before dispatch.
-                </div>
-              </div>
             </div>
 
             {/* Right: Product Details, Actions, Pricing */}
             <div className="flex flex-col justify-between">
               <div>
-                <div className="flex items-center justify-between text-xs font-semibold text-blue-700 uppercase tracking-wider mb-2">
+                <div className="flex items-center justify-between text-xs font-semibold text-[#8a6a2f] uppercase tracking-wider mb-2">
                   <span>{product.category_name || 'Curated Collection'}</span>
                   <span className="text-slate-600 font-normal">SKU: {product.sku}</span>
                 </div>
@@ -222,7 +224,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     )}
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
-                    Inclusive of all standard retail taxes. Cash on delivery & online bank transfer available.
+                    Pay cash on delivery when your order arrives.
                   </p>
                 </div>
 
@@ -285,7 +287,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     onClick={() => {
                       onBuyNow(product, quantity);
                     }}
-                    className="flex-1 py-3 px-5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition"
+                    className="flex-1 py-3 px-5 rounded-xl bg-[#1a1712] hover:bg-[#2c271f] disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition"
                   >
                     Buy Now
                   </button>
@@ -304,16 +306,9 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   </button>
                 </div>
 
-                {/* Delivery & Guarantee Info Pills */}
-                <div className="grid grid-cols-2 gap-3 text-xs text-slate-600">
-                  <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-                    <Truck className="w-4 h-4 text-blue-600 shrink-0" />
-                    <span>24-48h Delivery across Pakistan</span>
-                  </div>
-                  <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-                    <RotateCcw className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>7-Day Return Guarantee</span>
-                  </div>
+                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-600">
+                  <Truck className="h-4 w-4 shrink-0 text-[#8a6a2f]" />
+                  <span>Cash on delivery available · Track your order any time from the header</span>
                 </div>
               </div>
             </div>
@@ -326,7 +321,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 onClick={() => setActiveTab('details')}
                 className={`pb-3 text-sm font-semibold transition border-b-2 ${
                   activeTab === 'details'
-                    ? 'border-blue-600 text-blue-600'
+                    ? 'border-[#c8a96a] text-[#8a6a2f]'
                     : 'border-transparent text-slate-500 hover:text-slate-800'
                 }`}
               >
@@ -336,7 +331,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 onClick={() => setActiveTab('specs')}
                 className={`pb-3 text-sm font-semibold transition border-b-2 ${
                   activeTab === 'specs'
-                    ? 'border-blue-600 text-blue-600'
+                    ? 'border-[#c8a96a] text-[#8a6a2f]'
                     : 'border-transparent text-slate-500 hover:text-slate-800'
                 }`}
               >
@@ -346,7 +341,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 onClick={() => setActiveTab('reviews')}
                 className={`pb-3 text-sm font-semibold transition border-b-2 ${
                   activeTab === 'reviews'
-                    ? 'border-blue-600 text-blue-600'
+                    ? 'border-[#c8a96a] text-[#8a6a2f]'
                     : 'border-transparent text-slate-500 hover:text-slate-800'
                 }`}
               >
@@ -357,13 +352,55 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             {/* Tab 1: Overview */}
             {activeTab === 'details' && (
               <div className="text-sm text-slate-700 leading-relaxed space-y-4">
-                <p>{product.description}</p>
+                {product.description ? <p>{product.description}</p> : <p className="text-slate-500">No description has been added for this product yet.</p>}
                 {product.short_description && (
-                  <div className="p-4 bg-blue-50/70 border border-blue-100 rounded-xl text-blue-900 text-xs leading-normal">
-                    <span className="font-bold block mb-1">Curator's Note:</span>
+                  <div className="p-4 bg-[#faf6ec] border border-[#eadfc4] rounded-xl text-[#5c4a22] text-xs leading-normal">
+                    <span className="font-bold block mb-1">In short</span>
                     {product.short_description}
                   </div>
                 )}
+                {full?.demo_video_url && (
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-bold text-slate-900">Watch how it works</h4>
+                    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-black">
+                      <DemoVideo url={full.demo_video_url} type={full.demo_video_type} poster={full.demo_video_poster} captions={full.demo_video_captions} title={full.demo_video_title || product.name} />
+                    </div>
+                  </div>
+                )}
+                {full?.features && (
+                  <div>
+                    <h4 className="mb-2 text-sm font-bold text-slate-900">Features</h4>
+                    <ul className="grid gap-1.5 sm:grid-cols-2">
+                      {String(full.features).split('\n').map((f: string) => f.trim()).filter(Boolean).map((f: string) => (
+                        <li key={f} className="flex items-start gap-2 text-sm"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> {f}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {(() => {
+                  let d: any = null;
+                  try { d = full?.dimensions_json ? JSON.parse(full.dimensions_json) : null; } catch { d = null; }
+                  const info: [string, string | null][] = [
+                    ['Dimensions', d && (d.w || d.h || d.d) ? `${d.w ?? '–'} × ${d.h ?? '–'} × ${d.d ?? '–'} cm (W × H × D)` : null],
+                    ['Weight', full?.weight_kg ? `${full.weight_kg} kg` : null],
+                    ['In the box', full?.in_the_box || null],
+                    ['How to use', full?.usage_instructions || null],
+                    ['Care', full?.care_instructions || null],
+                    ['Warranty & returns', full?.warranty || null],
+                  ];
+                  const rows = info.filter(([, v]) => v);
+                  if (!rows.length) return null;
+                  return (
+                    <dl className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200">
+                      {rows.map(([k, v]) => (
+                        <div key={k} className="grid gap-1 px-4 py-3 sm:grid-cols-3">
+                          <dt className="text-xs font-semibold text-slate-800">{k}</dt>
+                          <dd className="whitespace-pre-line text-xs text-slate-600 sm:col-span-2">{v}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  );
+                })()}
               </div>
             )}
 
@@ -381,7 +418,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     {Object.keys(parsedSpecs).length === 0 && (
                       <tr>
                         <td colSpan={2} className="px-4 py-4 text-center text-slate-500">
-                          Standard commercial specifications apply. Sourced to high durability tolerances.
+                          The seller hasn’t listed specifications for this product yet.
                         </td>
                       </tr>
                     )}
@@ -414,7 +451,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                             placeholder="e.g. Asad Rehman"
                             value={reviewerName}
                             onChange={(e) => setReviewerName(e.target.value)}
-                            className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg focus:border-blue-500 focus:outline-hidden"
+                            className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg focus:border-[#c8a96a] focus:outline-hidden"
                           />
                         </div>
                         <div>
@@ -424,7 +461,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                           <select
                             value={reviewRating}
                             onChange={(e) => setReviewRating(Number(e.target.value))}
-                            className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg focus:border-blue-500 focus:outline-hidden"
+                            className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg focus:border-[#c8a96a] focus:outline-hidden"
                           >
                             <option value={5}>⭐⭐⭐⭐⭐ (5/5) - Outstanding</option>
                             <option value={4}>⭐⭐⭐⭐ (4/5) - Very Good</option>
@@ -444,7 +481,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                           placeholder="e.g. Excellent build quality, tested in Lahore"
                           value={reviewTitle}
                           onChange={(e) => setReviewTitle(e.target.value)}
-                          className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg focus:border-blue-500 focus:outline-hidden"
+                          className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg focus:border-[#c8a96a] focus:outline-hidden"
                         />
                       </div>
                       <div>
@@ -457,13 +494,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                           placeholder="Write honest feedback about packaging, durability, performance..."
                           value={reviewComment}
                           onChange={(e) => setReviewComment(e.target.value)}
-                          className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg focus:border-blue-500 focus:outline-hidden"
+                          className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg focus:border-[#c8a96a] focus:outline-hidden"
                         ></textarea>
                       </div>
                       <button
                         type="submit"
                         disabled={submittingReview}
-                        className="px-4 py-2 bg-slate-900 hover:bg-blue-600 text-white rounded-lg text-xs font-semibold transition"
+                        className="px-4 py-2 bg-slate-900 hover:bg-[#2c271f] text-white rounded-lg text-xs font-semibold transition"
                       >
                         {submittingReview ? 'Posting...' : 'Submit Review'}
                       </button>
@@ -496,13 +533,40 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   ))}
                   {reviews.length === 0 && (
                     <p className="text-xs text-slate-500 text-center py-4">
-                      No reviews submitted yet. Be the first customer to review this curated product!
+                      No reviews yet. Bought this product? Be the first to review it.
                     </p>
                   )}
                 </div>
               </div>
             )}
           </div>
+
+          {related.length > 0 && (
+            <div className="mt-10 border-t border-slate-200 pt-6">
+              <h4 className="mb-4 text-sm font-bold text-slate-900">You may also like</h4>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {related.map((r) => {
+                  const price = r.discount_price || r.regular_price;
+                  return (
+                    <button
+                      key={r.id}
+                      onClick={() => onSelectProduct?.(r)}
+                      disabled={!onSelectProduct}
+                      className="group overflow-hidden rounded-2xl border border-slate-200 bg-white text-left transition hover:-translate-y-0.5 hover:shadow-lg"
+                    >
+                      <div className="aspect-square overflow-hidden bg-slate-100">
+                        <ProductPhoto src={r.primary_image} alt={r.name} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
+                      </div>
+                      <div className="p-3">
+                        <div className="line-clamp-2 text-xs font-semibold text-slate-900">{r.name}</div>
+                        <div className="mt-1 text-xs font-bold text-slate-900">PKR {price.toLocaleString()}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

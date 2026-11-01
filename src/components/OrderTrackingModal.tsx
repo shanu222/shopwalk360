@@ -64,7 +64,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
         {/* Header */}
         <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-[#f3ead6] text-[#8a6a2f] flex items-center justify-center">
               <Truck className="w-4 h-4" />
             </div>
             <div>
@@ -95,7 +95,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
                   placeholder="e.g. AC-20261028-1001"
                   value={orderNumber}
                   onChange={(e) => setOrderNumber(e.target.value.toUpperCase())}
-                  className="w-full text-xs uppercase px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-blue-500 focus:outline-hidden"
+                  className="w-full text-xs uppercase px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-[#c8a96a] focus:outline-hidden"
                 />
               </div>
               <div>
@@ -107,14 +107,14 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
                   placeholder="e.g. 03219876543"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  className="w-full text-xs px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-blue-500 focus:outline-hidden"
+                  className="w-full text-xs px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-[#c8a96a] focus:outline-hidden"
                 />
               </div>
             </div>
             <button
               type="submit"
               disabled={loading || !orderNumber.trim()}
-              className="w-full py-2.5 px-4 bg-slate-900 hover:bg-blue-600 disabled:bg-slate-300 text-white font-semibold text-xs rounded-xl transition flex items-center justify-center gap-2"
+              className="w-full py-2.5 px-4 bg-slate-900 hover:bg-[#2c271f] disabled:bg-slate-300 text-white font-semibold text-xs rounded-xl transition flex items-center justify-center gap-2"
             >
               {loading ? 'Searching consignment records...' : 'Track Order Progress'}
               <Search className="w-3.5 h-3.5" />
@@ -141,7 +141,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
                   </span>
                 </div>
                 <div className="text-right">
-                  <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-blue-500 text-white block mb-1">
+                  <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-[#1a1712] text-white block mb-1">
                     {order.status}
                   </span>
                   <span className="text-xs text-slate-300 font-semibold block">
@@ -151,7 +151,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
               </div>
 
               {/* Courier Partner & Waybill */}
-              <div className="p-4 rounded-xl bg-blue-50/70 border border-blue-200 flex items-center justify-between text-xs">
+              <div className="p-4 rounded-xl bg-[#faf6ec] border border-[#eadfc4] flex items-center justify-between text-xs">
                 <div>
                   <span className="text-slate-500 block text-[11px]">Logistics Partner</span>
                   <span className="font-bold text-slate-900">{order.courier_partner || 'TCS Express'}</span>
@@ -159,7 +159,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
                 {order.tracking_number ? (
                   <div className="text-right">
                     <span className="text-slate-500 block text-[11px]">Courier Tracking ID</span>
-                    <span className="font-mono font-bold text-blue-700 bg-white px-2 py-0.5 rounded border border-blue-200">
+                    <span className="font-mono font-bold text-[#8a6a2f] bg-white px-2 py-0.5 rounded border border-[#eadfc4]">
                       {order.tracking_number}
                     </span>
                   </div>
@@ -184,7 +184,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
                         <div
                           className={`absolute -left-6 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] transition-colors ${
                             isCurrent
-                              ? 'bg-blue-600 ring-4 ring-blue-100 font-bold'
+                              ? 'bg-[#1a1712] ring-4 ring-[#e2c88f] font-bold'
                               : isPassed
                               ? 'bg-emerald-600'
                               : 'bg-slate-300'
@@ -195,7 +195,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
                         <div className="flex-1">
                           <span
                             className={`text-xs block font-semibold ${
-                              isCurrent ? 'text-blue-600 font-bold' : isPassed ? 'text-slate-900' : 'text-slate-400'
+                              isCurrent ? 'text-[#8a6a2f] font-bold' : isPassed ? 'text-slate-900' : 'text-slate-400'
                             }`}
                           >
                             {st}

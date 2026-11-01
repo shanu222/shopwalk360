@@ -48,6 +48,8 @@ export interface Product {
   size_options?: string;
   dimensions_json?: string;
   model_3d_url?: string;
+  model_scale?: number | null;
+  model_rotation_deg?: number | null;
   model_preset?: string;
   features?: string;
   in_the_box?: string;
@@ -356,6 +358,8 @@ export interface StoreShelf {
   product_tryon_type?: TryOnType;
   model_preset?: string;
   model_3d_url?: string;
+  model_scale?: number | null;
+  model_rotation_deg?: number | null;
   wearable_slot?: WearableSlot | null;
   product_color_options?: string;
   color_hex_map?: string;

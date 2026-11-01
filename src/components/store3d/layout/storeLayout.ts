@@ -38,7 +38,7 @@ export const STORE = {
   roomsPerSide: 6,
   bounds: { minX: -25, maxX: 25, minZ: -51, maxZ: 52 } as Rect,
   spawnOutside: { x: 0, z: 45 },
-  spawnInside: { x: 0, z: 29.5 },
+  spawnInside: { x: 0, z: 31.6 },
   lobbyCenter: { x: 0, z: 24 },
   reception: { x: 0, z: 21.2 },
   checkout: { x: 15.2, z: 22 },

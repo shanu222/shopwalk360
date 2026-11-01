@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { mediaUrl } from '../../lib/api';
 import { 
   Plus, Search, Edit2, Trash2, Download, Eye, 
   Check, X, AlertCircle, Sparkles, Filter, Image as ImageIcon
@@ -32,7 +33,9 @@ export const AdminProducts: React.FC<AdminProductsProps> = ({ categories }) => {
   const [formShortDesc, setFormShortDesc] = useState('');
   const [formDesc, setFormDesc] = useState('');
   const [formSpecs, setFormSpecs] = useState('{\n  "Origin": "Pakistan",\n  "Material": "Premium Grade"\n}');
-  const [formImages, setFormImages] = useState<string>('');
+  const [formImages, setFormImages] = useState<string[]>([]);
+  const [imgBusy, setImgBusy] = useState(false);
+  const [imgUrlInput, setImgUrlInput] = useState('');
   const [formIsFeatured, setFormIsFeatured] = useState(false);
   const [formIsPublished, setFormIsPublished] = useState(true);
 
@@ -65,8 +68,8 @@ export const AdminProducts: React.FC<AdminProductsProps> = ({ categories }) => {
     setFormBrand('');
     setFormShortDesc('');
     setFormDesc('');
-    setFormSpecs('{\n  "Material": "Export Grade",\n  "Packaging": "Bubble Shield Box"\n}');
-    setFormImages('');
+    setFormSpecs('{}');
+    setFormImages([]);
     setFormIsFeatured(false);
     setFormIsPublished(true);
     setFormError(null);
@@ -87,7 +90,17 @@ export const AdminProducts: React.FC<AdminProductsProps> = ({ categories }) => {
     setFormShortDesc(p.short_description || '');
     setFormDesc(p.description || '');
     setFormSpecs(p.specifications || '');
-    setFormImages(p.primary_image || '');
+    setFormImages(p.primary_image ? [p.primary_image] : []);
+    // load the full gallery so saving never drops extra photos
+    fetch(`/api/admin/products/${p.id}/experience`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d.images) && d.images.length) {
+          const ordered = [...d.images].sort((a: any, b: any) => (b.is_primary - a.is_primary) || (a.display_order - b.display_order));
+          setFormImages(ordered.map((x: any) => x.image_url));
+        }
+      })
+      .catch(() => {});
     setFormIsFeatured(p.is_featured === 1);
     setFormIsPublished(p.is_published === 1);
     setFormError(null);
@@ -104,10 +117,7 @@ export const AdminProducts: React.FC<AdminProductsProps> = ({ categories }) => {
     }
 
     setSaving(true);
-    const imagesArray = formImages
-      .split('\n')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
+    const imagesArray = formImages.map((s) => s.trim()).filter((s) => s.length > 0);
 
     const payload = {
       name: formName.trim(),
@@ -262,7 +272,7 @@ export const AdminProducts: React.FC<AdminProductsProps> = ({ categories }) => {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <img
-                          src={p.primary_image || 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=200&q=80'}
+                          src={p.primary_image ? mediaUrl(p.primary_image) : undefined}
                           alt=""
                           className="w-10 h-10 rounded-lg object-cover bg-slate-100 shrink-0"
                         />
@@ -492,15 +502,74 @@ export const AdminProducts: React.FC<AdminProductsProps> = ({ categories }) => {
 
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Image URLs (One per line)
+                    Product photos <span className="font-normal text-slate-500">— the first photo is the main image (shop cards, 3D shelf, basket)</span>
                   </label>
-                  <textarea
-                    rows={2}
-                    placeholder="https://images.unsplash.com/..."
-                    value={formImages}
-                    onChange={(e) => setFormImages(e.target.value)}
-                    className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-xl focus:border-blue-500 focus:outline-hidden font-mono"
-                  ></textarea>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    {formImages.length === 0 ? (
+                      <p className="mb-3 text-xs text-slate-500">No photos yet. Upload the real product photographs — customers see these in the 2D store and in the 3D product panel.</p>
+                    ) : (
+                      <div className="mb-3 grid grid-cols-3 gap-2 sm:grid-cols-5">
+                        {formImages.map((u, i) => (
+                          <div key={u + i} className={`group relative aspect-square overflow-hidden rounded-lg border-2 bg-white ${i === 0 ? 'border-blue-500' : 'border-transparent'}`}>
+                            <img src={mediaUrl(u)} alt="" className="h-full w-full object-cover" />
+                            {i === 0 && <span className="absolute left-1 top-1 rounded bg-blue-600 px-1.5 py-0.5 text-[9px] font-bold text-white">MAIN</span>}
+                            <div className="absolute inset-x-0 bottom-0 flex justify-between bg-black/55 p-1 opacity-0 transition group-hover:opacity-100">
+                              {i !== 0 ? (
+                                <button type="button" onClick={() => setFormImages([u, ...formImages.filter((_, k) => k !== i)])} className="rounded px-1 text-[10px] font-bold text-white hover:bg-white/20">Make main</button>
+                              ) : <span />}
+                              <button type="button" onClick={() => setFormImages(formImages.filter((_, k) => k !== i))} className="rounded px-1 text-[10px] font-bold text-rose-200 hover:bg-white/20">Remove</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700 ${imgBusy ? 'pointer-events-none opacity-60' : ''}`}>
+                        {imgBusy ? 'Uploading…' : 'Upload photos'}
+                        <input
+                          type="file"
+                          multiple
+                          accept="image/jpeg,image/png,image/webp"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const files = Array.from(e.target.files || []);
+                            e.target.value = '';
+                            if (!files.length) return;
+                            setImgBusy(true);
+                            setFormError(null);
+                            const added: string[] = [];
+                            for (const f of files) {
+                              try {
+                                const res = await fetch(`/api/admin/uploads?kind=image&filename=${encodeURIComponent(f.name)}`, { method: 'POST', body: f, headers: { 'Content-Type': f.type || 'application/octet-stream' } });
+                                const d = await res.json();
+                                if (!res.ok) throw new Error(d.error || 'Upload failed');
+                                added.push(d.url);
+                              } catch (err: any) {
+                                setFormError(`${f.name}: ${err.message}`);
+                              }
+                            }
+                            setFormImages((list) => [...list, ...added]);
+                            setImgBusy(false);
+                          }}
+                        />
+                      </label>
+                      <input
+                        value={imgUrlInput}
+                        onChange={(e) => setImgUrlInput(e.target.value)}
+                        placeholder="…or paste an image link"
+                        className="min-w-[180px] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-blue-500 focus:outline-hidden"
+                      />
+                      <button
+                        type="button"
+                        disabled={!/^https?:\/\//i.test(imgUrlInput.trim())}
+                        onClick={() => { setFormImages([...formImages, imgUrlInput.trim()]); setImgUrlInput(''); }}
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-40"
+                      >
+                        Add link
+                      </button>
+                    </div>
+                    <p className="mt-2 text-[11px] text-slate-500">JPG, PNG or WebP up to 10 MB each. Video, 3D model, dimensions, colours and shelf placement are in <b>3D Store &amp; Shelves → Product experience</b>.</p>
+                  </div>
                 </div>
 
                 <div className="sm:col-span-2">

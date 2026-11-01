@@ -4,7 +4,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { buildStore, BuiltStore, InteractiveTarget } from '../builder/storeBuilder';
 import { skyTexture, setMaxAnisotropy, contactShadowTexture } from '../builder/materials';
 import { createHumanAvatar, AvatarRig } from '../avatar/AvatarModel';
-import { createGlbAvatar } from '../avatar/glbAvatar';
+import { createGlbAvatar, getGLTFLoader } from '../avatar/glbAvatar';
 import { NavGrid } from '../nav/pathfinding';
 import { STORE, Rect, zoneAt, Zone, roomForSlot } from '../layout/storeLayout';
 import { AvatarConfig, StoreLayoutV2 } from '../../../types';
@@ -218,6 +218,88 @@ export class StoreEngine {
     if (startInside || this.reducedMotion) this.teleport(STORE.spawnInside.x, STORE.spawnInside.z, Math.PI, 'inside');
     else this.teleport(STORE.spawnOutside.x, STORE.spawnOutside.z, Math.PI, 'outside');
     this.events.onReady?.();
+    void this.loadProductModels();
+  }
+
+  /** Real product models uploaded by the admin are shown on a display stand in front of their shelf. */
+  private productModels: { obj: THREE.Object3D; spin: boolean; baseYaw: number }[] = [];
+  private async loadProductModels() {
+    const store = this.store;
+    if (!store) return;
+    const seen = new Set<string>();
+    const jobs = store.targets.filter((t) => {
+      const sh = t.shelf;
+      if (!sh?.model_3d_url || seen.has(sh.id)) return false;
+      seen.add(sh.id);
+      return true;
+    });
+    const loader = getGLTFLoader(this.renderer);
+    const stoneM = new THREE.MeshStandardMaterial({ color: '#efeae0', roughness: 0.35 });
+    const brassM = new THREE.MeshStandardMaterial({ color: '#c9a35c', metalness: 1, roughness: 0.25 });
+    for (const t of jobs) {
+      if (this.disposed || this.store !== store) return;
+      const sh = t.shelf!;
+      try {
+        const gltf = await loader.loadAsync(mediaUrl(sh.model_3d_url!));
+        if (this.disposed || this.store !== store) return;
+        const model = gltf.scene;
+        model.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (m.isMesh) {
+            m.castShadow = this.quality !== 'low';
+            m.receiveShadow = true;
+          }
+        });
+        // fit: real dimensions when the admin gave them, otherwise a standard display size
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        let dims: { w?: number; h?: number; d?: number } | null = null;
+        try {
+          dims = sh.dimensions_json ? JSON.parse(sh.dimensions_json) : null;
+        } catch {
+          dims = null;
+        }
+        const realMax = dims ? Math.max(Number(dims.w) || 0, Number(dims.h) || 0, Number(dims.d) || 0) / 100 : 0;
+        const modelMax = Math.max(size.x, size.y, size.z) || 1;
+        const targetMax = realMax > 0 ? realMax : 0.32;
+        const scale = (targetMax / modelMax) * (Number(sh.model_scale) > 0 ? Number(sh.model_scale) : 1);
+        model.scale.setScalar(scale);
+        const fitted = new THREE.Box3().setFromObject(model);
+        const c = fitted.getCenter(new THREE.Vector3());
+        model.position.set(-c.x, -fitted.min.y, -c.z);
+        const large = modelMax * scale > 0.7;
+
+        const holder = new THREE.Group();
+        holder.add(model);
+        const stand = new THREE.Group();
+        // place between the fixture and where the shopper stands
+        const fx = t.position.x;
+        const fz = t.position.z;
+        // beside the shopper's standing spot, not in it
+        const k = large ? 0.42 : 0.4;
+        const vx = t.stand.x - fx;
+        const vz = t.stand.z - fz;
+        const vl = Math.hypot(vx, vz) || 1;
+        const side = large ? 0 : 0.95;
+        stand.position.set(fx + vx * k + (-vz / vl) * side, 0, fz + vz * k + (vx / vl) * side);
+        const faceYaw = Math.atan2(t.stand.x - fx, t.stand.z - fz);
+        const baseYaw = faceYaw + THREE.MathUtils.degToRad(Number(sh.model_rotation_deg) || 0);
+        holder.rotation.y = baseYaw;
+        if (!large) {
+          const ped = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, 0.95, 40), stoneM);
+          ped.position.y = 0.475;
+          const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.03, 40), brassM);
+          cap.position.y = 0.965;
+          stand.add(ped, cap);
+          holder.position.y = 0.98;
+        }
+        stand.add(holder);
+        this.scene.add(stand);
+        this.productModels.push({ obj: holder, spin: !large, baseYaw });
+      } catch {
+        /* a model that fails to load simply isn't shown; the shelf packaging remains */
+      }
+    }
   }
 
   async setAvatarConfig(cfg: AvatarConfig) {
@@ -1054,6 +1136,11 @@ export class StoreEngine {
         this.avatar.update(dt, { speed: this.speedNow, turnRate: this.turnRate });
       }
       this.updatePick(dt);
+      if (!this.reducedMotion) {
+        const tt = this.clock.elapsedTime;
+        this.store.animate(tt, dt);
+        for (const m of this.productModels) if (m.spin) m.obj.rotation.y = m.baseYaw + Math.sin(tt * 0.5) * 0.6;
+      }
       this.avatarShadow.position.set(this.pos.x, 0.015, this.pos.z);
       this.avatarShadow.visible = this.cameraMode === 'third_person';
       this.updateDoors(dt);

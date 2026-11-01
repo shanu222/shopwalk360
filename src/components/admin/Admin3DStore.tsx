@@ -551,7 +551,7 @@ function ProductTab({ products, departments, shelves, call, reload, flash }: { p
             </div>
           </Card>
 
-          <Card title="3D model & dimensions" icon={Ruler}>
+          <Card title="3D Product Configuration" icon={Ruler}>
             <div className="grid gap-3 sm:grid-cols-3">
               {(['w', 'h', 'd'] as const).map((k) => (
                 <div key={k}><label className={label}>{k === 'w' ? 'Width' : k === 'h' ? 'Height' : 'Depth'} (cm)</label><input type="number" min={0} step="0.1" className={input} value={dims[k]} onChange={(e) => setDims({ ...dims, [k]: e.target.value })} /></div>
@@ -571,6 +571,17 @@ function ProductTab({ products, departments, shelves, call, reload, flash }: { p
               </div>
             </div>
             <p className="mt-1 text-[11px] text-slate-500">For best performance upload a Draco- or Meshopt-compressed GLB with KTX2 textures, modelled in metres. An uploaded model replaces the generated one.</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className={label}>Display scale ({Number(p.model_scale ?? 1).toFixed(2)}×)</label>
+                <input type="range" min={0.25} max={3} step={0.05} className="w-full accent-blue-600" value={p.model_scale ?? 1} onChange={(e) => set({ model_scale: Number(e.target.value) })} />
+              </div>
+              <div>
+                <label className={label}>Rotation on the display ({Math.round(p.model_rotation_deg ?? 0)}°)</label>
+                <input type="range" min={-180} max={180} step={5} className="w-full accent-blue-600" value={p.model_rotation_deg ?? 0} onChange={(e) => set({ model_rotation_deg: Number(e.target.value) })} />
+              </div>
+            </div>
+            <p className="mt-1 text-[11px] text-slate-500">An uploaded model is shown on a display stand in front of its shelf in the 3D store, sized from the dimensions above (or a standard display size if none are given) and then multiplied by the scale.</p>
             <div className="mt-3"><ProductViewer3D preset={p.model_preset} glbUrl={p.model_3d_url} colorName={colourNames[0]} colorMap={hex} colorOptions={p.color_options} dims={dimsObj} specs={Object.fromEntries(specs)} className="h-64" /></div>
           </Card>
 
