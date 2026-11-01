@@ -15,6 +15,7 @@ import { CheckoutModal } from './components/CheckoutModal';
 import { OrderTrackingModal } from './components/OrderTrackingModal';
 import { CustomerAccountModal } from './components/CustomerAccountModal';
 import { InformationalPages } from './components/InformationalPages';
+import { HelpChat } from './components/HelpChat';
 
 // Admin Suite Components
 import { AdminLayout } from './components/admin/AdminLayout';
@@ -647,6 +648,8 @@ export default function App() {
           storeSettings={storeSettings}
         />
       )}
+
+      {shoppingMode === '2d' && <HelpChat />}
 
       {/* Modals & Overlays */}
       <ProductDetailModal

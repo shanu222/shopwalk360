@@ -3,19 +3,22 @@ import nodemailer from 'nodemailer';
 export const STORE_EMAIL = 'info@shopwalk360.com';
 
 export function mailConfigured() {
-  return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+  return !!process.env.SMTP_PASS;
 }
 
-export async function sendInquiryEmail(input: { name: string; email: string; phone: string; topic: string; message: string }) {
+export async function sendInquiryEmail(input: { name: string; email: string; phone: string; topic: string; message: string }, alsoTo?: string) {
   const port = Number(process.env.SMTP_PORT || 465);
   const user = process.env.SMTP_USER || STORE_EMAIL;
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST || 'mail.privateemail.com',
     port,
     secure: port === 465,
+    requireTLS: port === 587,
     auth: { user, pass: process.env.SMTP_PASS },
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
   });
-  const to = process.env.INQUIRY_TO || STORE_EMAIL;
+  const to = [...new Set([process.env.INQUIRY_TO || STORE_EMAIL, STORE_EMAIL, alsoTo || ''].map((a) => a.trim()).filter((a) => a.includes('@')))];
   const text = [
     'New inquiry from the ShopWalk 360 website',
     '',

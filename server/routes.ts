@@ -612,13 +612,14 @@ apiRouter.post('/inquiries', async (req: Request, res: Response) => {
     let emailed = 0;
     if (mailConfigured()) {
       try {
-        await sendInquiryEmail({ name, email, phone, topic, message });
+        const contact = (db.prepare("SELECT value FROM website_settings WHERE key = 'contact_email'").get() as { value?: string } | undefined)?.value;
+        await sendInquiryEmail({ name, email, phone, topic, message }, contact);
         emailed = 1;
       } catch (err) {
         console.error('Inquiry email failed:', err);
       }
     } else {
-      console.warn(`Inquiry saved but SMTP is not configured. Messages should go to ${STORE_EMAIL}.`);
+      console.warn(`Inquiry saved but SMTP_PASS is not set. Messages should go to ${STORE_EMAIL}.`);
     }
     db.prepare('INSERT INTO inquiries (id, name, email, phone, topic, message, emailed) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, name, email, phone, topic, message, emailed);
     res.json({ success: true });
