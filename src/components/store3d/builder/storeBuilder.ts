@@ -5,7 +5,7 @@ import {
   plasterTexture, flutedTexture, rubberTexture, lightPoolTexture, contactShadowTexture,
 } from './materials';
 import {
-  fasciaTexture, bladeTexture, aisleSignTexture, wayfindingTexture, welcomeWallTexture, facadeSignTexture, directoryTexture,
+  fasciaTexture, bladeTexture, aisleSignTexture, wayfindingTexture, welcomeWallTexture, buildFacadeSign, directoryTexture,
   promoTexture, deptInfoTexture, packagingTexture, simpleScreenTexture,
 } from './signage';
 import { buildFixture, FixturePalette } from './fixtures';
@@ -234,13 +234,14 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     wallC(5.9, 7.1, 39.8, 40.6);
   }
   root.add(ext.build('exterior'));
-  // big façade lettering (transparent texture, kept separate)
+  // big façade lettering — raised letters, kept separate so they can animate
+  let facadeAnim: (t: number) => void = () => {};
   {
-    const t = facadeSignTexture();
-    disposables.push(t);
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(13, 2.44), new THREE.MeshBasicMaterial({ map: t, transparent: true, toneMapped: false }));
-    sign.position.set(0, 8.75, STORE.facadeZ + 0.32);
-    root.add(sign);
+    const sign = await buildFacadeSign();
+    sign.disposables.forEach((d) => disposables.push(d));
+    sign.group.position.set(0, 8.78, STORE.facadeZ + 0.5);
+    root.add(sign.group);
+    facadeAnim = (t) => sign.update(t);
     // brand emblems on the stone piers either side of the entrance
     [-19, 19].forEach((x) => root.add(logoDisc(2.3, x, 5.6, STORE.facadeZ + 0.33, 0)));
     const kiosk = new THREE.Mesh(
@@ -749,7 +750,10 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     targets,
     hitGroup,
     videoScreens,
-    animate: (t: number, dt: number) => centre.update(t, dt),
+    animate: (t: number, dt: number) => {
+      centre.update(t, dt);
+      facadeAnim(t);
+    },
     roomLighting,
     deptBySlot,
     dispose: () => {

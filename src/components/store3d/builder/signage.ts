@@ -215,22 +215,340 @@ export function welcomeWallTexture(subBrand: string) {
   return tex(c);
 }
 
-export function facadeSignTexture() {
-  const c = makeCanvas(2048, 384);
-  const ctx = c.getContext('2d')!;
-  ctx.clearRect(0, 0, 2048, 384);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#ffffff';
-  spaced(ctx, 26);
-  ctx.font = `800 210px ${FONT}`;
-  ctx.fillText('SHOPWALK 360', 1024, 170);
-  spaced(ctx, 14);
-  ctx.fillStyle = '#e7d3a6';
-  ctx.font = `500 52px ${FONT}`;
-  ctx.fillText('EXPLORE · EXPERIENCE · DISCOVER', 1024, 318);
-  const t = tex(c);
-  return t;
+type SignGlyph = { group: THREE.Group; i: number; face: THREE.MeshBasicMaterial; tint: [number, number, number] };
+
+/** Raised channel letters for the street façade. White pearl for the name, gold for 360 and the tagline. */
+export async function buildFacadeSign() {
+  if (document.fonts?.ready) await document.fonts.ready;
+  const reduce = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const disposables: { dispose: () => void }[] = [];
+  const glyphs: SignGlyph[] = [];
+  const group = new THREE.Group();
+  group.name = 'facade-sign';
+
+  const probe = document.createElement('canvas').getContext('2d')!;
+  const glyphCache = new Map<string, THREE.CanvasTexture>();
+
+  const glyphMap = (ch: string, px: number) => {
+    const key = `${px}:${ch}`;
+    const cached = glyphCache.get(key);
+    if (cached) return cached;
+    const c = makeCanvas(px, px);
+    const ctx = c.getContext('2d')!;
+    ctx.clearRect(0, 0, px, px);
+    ctx.font = `800 ${Math.floor(px * 0.78)}px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(ch, px / 2, px / 2 + px * 0.03);
+    ctx.globalCompositeOperation = 'source-atop';
+    const shine = ctx.createLinearGradient(0, 0, 0, px);
+    shine.addColorStop(0, 'rgba(255,255,255,0.7)');
+    shine.addColorStop(0.42, 'rgba(255,255,255,0)');
+    shine.addColorStop(1, 'rgba(90,50,8,0.35)');
+    ctx.fillStyle = shine;
+    ctx.fillRect(0, 0, px, px);
+    const t = tex(c);
+    disposables.push(t);
+    glyphCache.set(key, t);
+    return t;
+  };
+
+  const addRow = (text: string, worldH: number, y: number, tintFor: (ch: string) => [number, number, number]) => {
+    probe.font = `800 200px ${FONT}`;
+    const gap = worldH * 0.08;
+    const parts = [...text].map((ch) => {
+      if (ch === ' ') return { ch, w: worldH * 0.42 };
+      const aspect = Math.max(0.32, probe.measureText(ch).width / 200);
+      return { ch, w: worldH * aspect * 0.96 };
+    });
+    const total = parts.reduce((s, p) => s + p.w, 0) + gap * Math.max(0, parts.length - 1);
+    let x = -total / 2;
+    const row = new THREE.Group();
+    parts.forEach((part) => {
+      if (part.ch !== ' ') {
+        const holder = new THREE.Group();
+        const map = glyphMap(part.ch, 256);
+        const slices = 6;
+        const tint = tintFor(part.ch);
+        const face = new THREE.MeshBasicMaterial({
+          map,
+          color: new THREE.Color(tint[0], tint[1], tint[2]),
+          transparent: true,
+          alphaTest: 0.12,
+          toneMapped: false,
+          depthWrite: false,
+        });
+        disposables.push(face);
+        const geo = new THREE.PlaneGeometry(part.w, worldH);
+        disposables.push(geo);
+        for (let s = 0; s < slices; s++) {
+          const front = s === slices - 1;
+          const mat = front
+            ? face
+            : new THREE.MeshBasicMaterial({
+                map,
+                color: new THREE.Color().setHSL(0.1, 0.75, 0.16 + (s / slices) * 0.2),
+                transparent: true,
+                alphaTest: 0.12,
+                toneMapped: false,
+                depthWrite: false,
+              });
+          if (!front) disposables.push(mat);
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.z = -((slices - 1 - s) * 0.02);
+          mesh.position.y = -((slices - 1 - s) * 0.014);
+          mesh.renderOrder = 2 + s;
+          holder.add(mesh);
+        }
+        holder.position.x = x + part.w / 2;
+        row.add(holder);
+        glyphs.push({ group: holder, i: glyphs.length, face, tint });
+      }
+      x += part.w + gap;
+    });
+    row.position.y = y;
+    group.add(row);
+    return { total, row };
+  };
+
+  const title = addRow('SHOPWALK 360', 0.92, 0.38, (ch) => (ch >= '0' && ch <= '9' ? [1, 0.78, 0.28] : [1, 0.97, 0.9]));
+  const titleW = title.total;
+
+  // Tagline sits on a dark plaque so the gold stays readable on the pale stone, with a light that travels the line.
+  type BannerBit = { holder: THREE.Group; face: THREE.MeshBasicMaterial; x: number };
+  const bannerBits: BannerBit[] = [];
+  const banner = new THREE.Group();
+  banner.name = 'facade-banner';
+  const wordH = 0.52;
+  const gold: [number, number, number] = [1, 0.84, 0.32];
+  const hot: [number, number, number] = [1, 0.98, 0.86];
+
+  const makeWord = (text: string) => {
+    probe.font = `800 200px ${FONT}`;
+    const gap = wordH * 0.11;
+    const parts = [...text].map((ch) => {
+      const aspect = Math.max(0.34, probe.measureText(ch).width / 200);
+      return { ch, w: wordH * aspect * 0.98 };
+    });
+    const total = parts.reduce((s, p) => s + p.w, 0) + gap * Math.max(0, parts.length - 1);
+    const row = new THREE.Group();
+    let x = -total / 2;
+    parts.forEach((part) => {
+      const holder = new THREE.Group();
+      const map = glyphMap(part.ch, 256);
+      const slices = 5;
+      const face = new THREE.MeshBasicMaterial({
+        map,
+        color: new THREE.Color(gold[0], gold[1], gold[2]),
+        transparent: true,
+        alphaTest: 0.08,
+        toneMapped: false,
+        depthWrite: false,
+      });
+      disposables.push(face);
+      const geo = new THREE.PlaneGeometry(part.w, wordH);
+      disposables.push(geo);
+      for (let s = 0; s < slices; s++) {
+        const front = s === slices - 1;
+        const mat = front
+          ? face
+          : new THREE.MeshBasicMaterial({
+              map,
+              color: new THREE.Color().setHSL(0.09, 0.9, 0.16 + (s / slices) * 0.2),
+              transparent: true,
+              alphaTest: 0.08,
+              toneMapped: false,
+              depthWrite: false,
+            });
+        if (!front) disposables.push(mat);
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.z = -((slices - 1 - s) * 0.016);
+        mesh.position.y = -((slices - 1 - s) * 0.011);
+        mesh.renderOrder = 6 + s;
+        holder.add(mesh);
+      }
+      holder.position.x = x + part.w / 2;
+      row.add(holder);
+      bannerBits.push({ holder, face, x: 0 });
+      x += part.w + gap;
+    });
+    return { row, total };
+  };
+
+  const dotCanvas = makeCanvas(128, 128);
+  const dctx = dotCanvas.getContext('2d')!;
+  dctx.fillStyle = '#ffffff';
+  dctx.beginPath();
+  dctx.arc(64, 64, 26, 0, Math.PI * 2);
+  dctx.fill();
+  const dotMap = tex(dotCanvas);
+  disposables.push(dotMap);
+  const makeDot = () => {
+    const holder = new THREE.Group();
+    const face = new THREE.MeshBasicMaterial({
+      map: dotMap,
+      color: new THREE.Color(gold[0], gold[1], gold[2]),
+      transparent: true,
+      alphaTest: 0.05,
+      toneMapped: false,
+      depthWrite: false,
+    });
+    disposables.push(face);
+    const geo = new THREE.PlaneGeometry(0.18, 0.18);
+    disposables.push(geo);
+    const mesh = new THREE.Mesh(geo, face);
+    mesh.renderOrder = 11;
+    holder.add(mesh);
+    bannerBits.push({ holder, face, x: 0 });
+    return { row: holder, total: 0.18 };
+  };
+
+  const chunks = ['EXPLORE', 'EXPERIENCE', 'DISCOVER'].flatMap((word, i, all) => {
+    const piece = makeWord(word);
+    return i < all.length - 1 ? [piece, makeDot()] : [piece];
+  });
+  const wordGap = 0.38;
+  const lineW = chunks.reduce((s, c) => s + c.total, 0) + wordGap * Math.max(0, chunks.length - 1);
+  let cursor = -lineW / 2;
+  chunks.forEach((c) => {
+    c.row.position.x = cursor + c.total / 2;
+    banner.add(c.row);
+    cursor += c.total + wordGap;
+  });
+  bannerBits.forEach((b) => {
+    b.x = b.holder.position.x + (b.holder.parent ? b.holder.parent.position.x : 0);
+  });
+
+  const plateW = lineW + 1.45;
+  const plateH = 0.92;
+  const plateGeo = new THREE.BoxGeometry(plateW, plateH, 0.08);
+  const plateMat = new THREE.MeshStandardMaterial({
+    color: '#1a120c',
+    metalness: 0.22,
+    roughness: 0.52,
+    emissive: '#3a2412',
+    emissiveIntensity: 0.45,
+  });
+  const plate = new THREE.Mesh(plateGeo, plateMat);
+  plate.position.set(0, 0, -0.12);
+  plate.renderOrder = 3;
+  banner.add(plate);
+  disposables.push(plateGeo, plateMat);
+
+  const trimMat = new THREE.MeshBasicMaterial({ color: 0xf3d48a, toneMapped: false });
+  const trimGeo = new THREE.BoxGeometry(plateW + 0.08, 0.04, 0.045);
+  disposables.push(trimMat, trimGeo);
+  [plateH / 2, -plateH / 2].forEach((y) => {
+    const trim = new THREE.Mesh(trimGeo, trimMat);
+    trim.position.set(0, y, -0.06);
+    banner.add(trim);
+  });
+
+  const washGeo = new THREE.PlaneGeometry(lineW + 0.4, wordH * 1.15);
+  const washMat = new THREE.MeshBasicMaterial({
+    color: 0xffb02e,
+    transparent: true,
+    opacity: 0.2,
+    depthWrite: false,
+    toneMapped: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const wash = new THREE.Mesh(washGeo, washMat);
+  wash.position.set(0, 0, -0.04);
+  wash.renderOrder = 4;
+  banner.add(wash);
+  disposables.push(washGeo, washMat);
+
+  const sheenGeo = new THREE.PlaneGeometry(1.7, 0.05);
+  const sheenMat = new THREE.MeshBasicMaterial({
+    color: 0xfff4cc,
+    transparent: true,
+    opacity: 0.95,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const sheen = new THREE.Mesh(sheenGeo, sheenMat);
+  sheen.position.set(0, -wordH * 0.52, 0.07);
+  sheen.renderOrder = 14;
+  sheen.visible = !reduce;
+  banner.add(sheen);
+  disposables.push(sheenGeo, sheenMat);
+
+  banner.position.set(0, -0.76, 0.04);
+  group.add(banner);
+
+  const glowC = makeCanvas(64, 64);
+  const gctx = glowC.getContext('2d')!;
+  const grd = gctx.createRadialGradient(32, 32, 4, 32, 32, 32);
+  grd.addColorStop(0, 'rgba(255, 196, 80, 0.55)');
+  grd.addColorStop(1, 'rgba(255, 170, 40, 0)');
+  gctx.fillStyle = grd;
+  gctx.fillRect(0, 0, 64, 64);
+  const glowMap = tex(glowC);
+  disposables.push(glowMap);
+  const glow = new THREE.Mesh(
+    new THREE.PlaneGeometry(titleW + 1.4, 1.35),
+    new THREE.MeshBasicMaterial({ map: glowMap, transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending }),
+  );
+  glow.position.set(0, 0.4, -0.16);
+  glow.renderOrder = 1;
+  group.add(glow);
+  disposables.push(glow.geometry, glow.material);
+
+  const sweep = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.55, 1.05),
+    new THREE.MeshBasicMaterial({ color: 0xfff4cc, transparent: true, opacity: 0.28, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending }),
+  );
+  sweep.position.set(-titleW / 2, 0.4, 0.04);
+  sweep.renderOrder = 12;
+  group.add(sweep);
+  disposables.push(sweep.geometry, sweep.material);
+  if (reduce) sweep.visible = false;
+
+  return {
+    group,
+    disposables,
+    update(t: number) {
+      glyphs.forEach((g) => {
+        const wave = reduce ? 0 : Math.sin(t * 1.7 + g.i * 0.42);
+        g.group.position.y = wave * 0.034;
+        const glowAmt = reduce ? 1 : 0.86 + 0.14 * (0.5 + 0.5 * Math.sin(t * 1.35 + g.i * 0.55));
+        g.face.color.setRGB(g.tint[0] * glowAmt, g.tint[1] * glowAmt, g.tint[2] * glowAmt);
+      });
+      if (!reduce) {
+        const span = titleW + 1.2;
+        const u = (t % 5.2) / 5.2;
+        sweep.position.x = -span / 2 + u * span;
+        (sweep.material as THREE.MeshBasicMaterial).opacity = Math.sin(u * Math.PI) * 0.42;
+        (glow.material as THREE.MeshBasicMaterial).opacity = 0.42 + 0.16 * Math.sin(t * 1.1);
+
+        const pad = 1.8;
+        const start = -lineW / 2 - pad;
+        const end = lineW / 2 + pad;
+        const head = start + ((t * 2.15) % (end - start));
+        sheen.position.x = head;
+        const fadeIn = THREE.MathUtils.smoothstep(head, start, start + 1.1);
+        const fadeOut = 1 - THREE.MathUtils.smoothstep(head, end - 1.1, end);
+        sheenMat.opacity = 0.95 * fadeIn * fadeOut;
+        bannerBits.forEach((b) => {
+          const d = b.x - head;
+          const k = Math.exp(-d * d * 1.7);
+          const idle = Math.sin(t * 1.7 + b.x * 0.9) * 0.014;
+          b.holder.position.y = idle + k * 0.07;
+          b.holder.scale.setScalar(1 + k * 0.12);
+          b.face.color.setRGB(
+            gold[0] + (hot[0] - gold[0]) * k,
+            gold[1] + (hot[1] - gold[1]) * k,
+            gold[2] + (hot[2] - gold[2]) * k,
+          );
+        });
+        const pulse = 0.5 + 0.5 * Math.sin(t * 1.45);
+        trimMat.color.setRGB(0.82 + 0.18 * pulse, 0.64 + 0.18 * pulse, 0.28 + 0.12 * pulse);
+        washMat.opacity = 0.14 + 0.12 * pulse;
+      }
+    },
+  };
 }
 
 /** Department directory totem listing (left / right side per department) */
