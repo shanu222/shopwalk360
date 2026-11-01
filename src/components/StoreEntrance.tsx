@@ -101,12 +101,16 @@ export const StoreEntrance: React.FC<Props> = ({ onChoose }) => (
     </div>
 
     <div className="relative mx-auto flex min-h-[100dvh] max-w-5xl flex-col items-center justify-center gap-6 px-4 py-8 sm:gap-9">
-      <h1 className="sr-only">ShopWalk 360</h1>
       <div className="sw-emblem relative h-[150px] w-[150px] select-none sm:h-[200px] sm:w-[200px] md:h-[220px] md:w-[220px]" aria-hidden>
         <span className="sw-emblem-halo absolute -inset-6 rounded-full" />
         <span className="absolute -inset-2 rounded-full bg-[#c8a96a]/25 blur-2xl" />
         <img src="/brand/logo-512.webp" alt="" width={512} height={512} className="sw-emblem-logo relative h-full w-full drop-shadow-[0_18px_40px_rgba(0,0,0,0.7)]" />
         <span className="sw-emblem-shine pointer-events-none absolute inset-0 overflow-hidden rounded-full" />
+      </div>
+
+      <div className="max-w-xl text-center">
+        <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">ShopWalk 360</h1>
+        <p className="mt-2 text-sm leading-relaxed text-white/75 sm:text-base">The official online store at shopwalk360.com. Shop the catalogue, or walk the 3D store with your avatar and buy in the same cart.</p>
       </div>
 
       <div className="grid w-full max-w-3xl grid-cols-1 gap-6 min-[520px]:grid-cols-2 sm:gap-8">

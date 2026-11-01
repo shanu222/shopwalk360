@@ -3,12 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ShopWalk 360 — Explore. Experience. Discover.</title>
-    <meta name="description" content="Shop online or walk through the ShopWalk 360 3D store, create your avatar and try products on before you buy." />
+    <title>ShopWalk 360 — official online store | shopwalk360.com</title>
+    <meta name="description" content="ShopWalk 360 is the official online store at shopwalk360.com. Shop the catalogue, or walk the 3D store with your avatar and buy in the same cart." />
     <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta name="author" content="ShopWalk 360" />
-    <meta property="og:title" content="ShopWalk 360" />
-    <meta property="og:description" content="Shop online or walk through the ShopWalk 360 3D store, create your avatar and try products on before you buy." />
+    <meta name="application-name" content="ShopWalk 360" />
+    <meta property="og:title" content="ShopWalk 360 — official online store" />
+    <meta property="og:description" content="ShopWalk 360 is the official online store at shopwalk360.com. Shop the catalogue, or walk the 3D store with your avatar and buy in the same cart." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://www.shopwalk360.com/" />
     <meta property="og:site_name" content="ShopWalk 360" />
@@ -24,19 +25,23 @@
         "@context": "https://schema.org",
         "@graph": [
           {
-            "@type": "Organization",
+            "@type": "OnlineStore",
             "@id": "https://www.shopwalk360.com/#organization",
             "name": "ShopWalk 360",
+            "alternateName": ["shopwalk360.com", "www.shopwalk360.com", "ShopWalk360"],
             "url": "https://www.shopwalk360.com/",
             "logo": "https://www.shopwalk360.com/brand/logo-512.webp",
-            "slogan": "Explore. Experience. Discover."
+            "image": "https://www.shopwalk360.com/brand/og-image.jpg",
+            "slogan": "Explore. Experience. Discover.",
+            "description": "ShopWalk 360 is the official online store at shopwalk360.com. Shop the catalogue, or walk the 3D store with your avatar and buy in the same cart."
           },
           {
             "@type": "WebSite",
             "@id": "https://www.shopwalk360.com/#website",
             "name": "ShopWalk 360",
+            "alternateName": "shopwalk360.com",
             "url": "https://www.shopwalk360.com/",
-            "description": "Shop online or walk through the ShopWalk 360 3D store, create your avatar and try products on before you buy.",
+            "description": "ShopWalk 360 is the official online store at shopwalk360.com. Shop the catalogue, or walk the 3D store with your avatar and buy in the same cart.",
             "publisher": { "@id": "https://www.shopwalk360.com/#organization" },
             "inLanguage": "en"
           }
@@ -54,8 +59,14 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
   </head>
-  <body>
-    <div id="root"></div>
+  <body style="margin:0;background:#0d0b09;color:#fff">
+    <div id="root">
+      <main style="box-sizing:border-box;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:48px 20px;font-family:'Plus Jakarta Sans',Helvetica,Arial,sans-serif">
+        <img src="/brand/logo-512.webp" width="160" height="160" alt="ShopWalk 360 logo" />
+        <h1 style="font-size:2rem;line-height:1.1;margin:18px 0 8px;font-weight:800">ShopWalk 360</h1>
+        <p style="max-width:36rem;margin:0;color:#d9d4ca;font-size:1rem;line-height:1.5">The official online store at shopwalk360.com. Shop the catalogue, or walk the 3D store with your avatar and buy in the same cart.</p>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

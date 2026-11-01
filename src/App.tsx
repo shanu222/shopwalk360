@@ -414,9 +414,10 @@ export default function App() {
               <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_80%_20%,rgba(200,169,106,0.18),transparent_55%)]" />
               <div className="relative mx-auto grid max-w-7xl items-center gap-10 px-4 sm:px-6 lg:grid-cols-12 lg:px-8">
                 <div className="space-y-6 lg:col-span-6">
-                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[#e2c88f]">ShopWalk 360 online store</p>
-                  <h1 className="text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-5xl">Explore. Experience. <span className="text-[#c8a96a]">Discover.</span></h1>
-                  <p className="max-w-lg text-base leading-relaxed text-white/70">Everything in our 3D store, in a fast online catalogue. Same products, same prices, one basket.</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[#e2c88f]">Official store · shopwalk360.com</p>
+                  <h1 className="text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-5xl">ShopWalk 360</h1>
+                  <p className="text-2xl font-semibold tracking-tight text-white/80 sm:text-3xl">Explore. Experience. <span className="text-[#c8a96a]">Discover.</span></p>
+                  <p className="max-w-lg text-base leading-relaxed text-white/70">The official ShopWalk 360 online store. Everything in our 3D store, in a fast online catalogue. Same products, same prices, one basket.</p>
                   <div className="flex flex-wrap gap-3">
                     <a href="#catalog-section" className="flex items-center gap-2 rounded-full bg-[#c8a96a] px-6 py-3 text-sm font-bold text-[#1a1712] hover:bg-[#d6b97c]">Browse products <ArrowRight className="h-4 w-4" /></a>
                     <button onClick={() => { setShoppingMode('3d'); window.scrollTo(0, 0); }} className="rounded-full border border-white/25 px-6 py-3 text-sm font-semibold hover:bg-white/5">Walk the 3D store</button>

@@ -1,7 +1,7 @@
 {
   "name": "ShopWalk 360",
   "short_name": "ShopWalk 360",
-  "description": "Shop online or walk through the ShopWalk 360 3D store.",
+  "description": "ShopWalk 360 is the official online store at shopwalk360.com.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
