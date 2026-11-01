@@ -107,7 +107,7 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
   }, [open]);
 
   useEffect(() => {
-    if (open && (step === 'photo' || step === 'start')) preloadPhotoFace();
+    if (open && step === 'photo') preloadPhotoFace();
   }, [open, step]);
 
   const stopCamera = useCallback(() => {

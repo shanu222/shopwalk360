@@ -81,6 +81,11 @@ export default function ShopWalkExperience(props: Props) {
   const [isTouch] = useState(() => typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches);
   const pendingFocus = useRef<string | null>(null);
 
+  const openStudio = useCallback((step: 'start' | 'presets' | 'preview' | 'customize', enterOnConfirm: boolean) => {
+    engine.current?.setPaused(true);
+    setStudio({ open: true, step, enterOnConfirm });
+  }, []);
+
   const showToast = useCallback((m: string) => {
     setToast(m);
     window.setTimeout(() => setToast((t) => (t === m ? null : t)), 3200);
@@ -323,10 +328,10 @@ export default function ShopWalkExperience(props: Props) {
           progress={progress.p}
           progressLabel={progress.label}
           saved={saved}
-          onCreate={() => setStudio({ open: true, step: 'start', enterOnConfirm: true })}
-          onGuest={() => setStudio({ open: true, step: 'presets', enterOnConfirm: true })}
+          onCreate={() => openStudio('start', true)}
+          onGuest={() => openStudio('presets', true)}
           onContinueSaved={() => saved && enterWith(saved.config)}
-          onEditSaved={() => setStudio({ open: true, step: 'customize', enterOnConfirm: true })}
+          onEditSaved={() => openStudio('customize', true)}
           onDeleteSaved={async () => {
             await deleteSavedAvatar();
             setSaved(null);
@@ -368,7 +373,7 @@ export default function ShopWalkExperience(props: Props) {
           isTouch={isTouch}
           walking={walking}
           onToggleCamera={() => setCameraMode((m) => (m === 'third_person' ? 'first_person' : 'third_person'))}
-          onOpenAvatar={() => setStudio({ open: true, step: 'preview', enterOnConfirm: false })}
+          onOpenAvatar={() => openStudio('preview', false)}
           onLobby={() => {
             engine.current?.returnToLobby(true);
             setWalking(true);

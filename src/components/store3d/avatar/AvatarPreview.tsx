@@ -33,11 +33,47 @@ const FOCUS: Record<PreviewFocus, { target: [number, number, number]; dist: numb
 
 const ANGLE: Record<PreviewAngle, number> = { front: 0, three_quarter: Math.PI / 5, side: Math.PI / 2, back: Math.PI };
 
+let glbToken = 0;
+function paintAvatar(
+  s: { renderer: THREE.WebGLRenderer; scene: THREE.Scene; rig: AvatarRig | null; glbUrl?: string },
+  config: AvatarConfig,
+  focus: PreviewFocus,
+) {
+  if (config.glbUrl && config.glbUrl !== s.glbUrl) {
+    const token = ++glbToken;
+    createGlbAvatar(config.glbUrl, config, s.renderer)
+      .then((rig) => {
+        if (token !== glbToken) return rig.dispose();
+        s.rig?.dispose();
+        s.rig = rig;
+        s.glbUrl = config.glbUrl;
+        s.scene.add(rig.root);
+      })
+      .catch(() => {
+        /* a later config change rebuilds the procedural avatar */
+      });
+    return;
+  }
+  if (!config.glbUrl) {
+    if (s.rig && !s.glbUrl) s.rig.applyConfig(config);
+    else {
+      s.rig?.dispose();
+      s.glbUrl = undefined;
+      s.rig = createHumanAvatar(config);
+      s.scene.add(s.rig.root);
+    }
+    s.rig.pose(focus === 'wrist' ? 'showWrist' : 'idle');
+  }
+}
+
 /** "Preview room": the avatar on a lit plinth, rotatable, with fixed front/side/back views */
 export const AvatarPreview = forwardRef<AvatarPreviewHandle, Props>(({ config, focus = 'full', className, autoRotate = false, label }, ref) => {
   const mount = useRef<HTMLDivElement>(null);
   const state = useRef<{ renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera; controls: OrbitControls; rig: AvatarRig | null; glbUrl?: string } | null>(null);
   const focusRef = useRef(focus);
+  const configRef = useRef(config);
+  configRef.current = config;
+  const applyRef = useRef<(next: AvatarConfig, nextFocus: PreviewFocus) => void>(() => {});
 
   useImperativeHandle(ref, () => ({
     setAngle: (a) => {
@@ -59,40 +95,42 @@ export const AvatarPreview = forwardRef<AvatarPreviewHandle, Props>(({ config, f
 
   useEffect(() => {
     const el = mount.current!;
-    const w = el.clientWidth || 360;
-    const h = el.clientHeight || 460;
-    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-    renderer.setSize(w, h);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.95;
-    el.appendChild(renderer.domElement);
-    renderer.domElement.setAttribute('aria-label', 'Avatar preview. Drag to rotate.');
+    let cancelled = false;
+    let raf = 0;
+    let envTimer = 0;
+    let renderer: THREE.WebGLRenderer | null = null;
+    let controls: OrbitControls | null = null;
+    let bgTex: THREE.CanvasTexture | null = null;
+    let ro: ResizeObserver | null = null;
 
-    const scene = new THREE.Scene();
-    const bg = document.createElement('canvas');
-    bg.width = 4;
-    bg.height = 256;
-    const g = bg.getContext('2d')!;
-    const grad = g.createLinearGradient(0, 0, 0, 256);
-    grad.addColorStop(0, '#3a3631');
-    grad.addColorStop(0.6, '#26231f');
-    grad.addColorStop(1, '#171512');
-    g.fillStyle = grad;
-    g.fillRect(0, 0, 4, 256);
-    const bgTex = new THREE.CanvasTexture(bg);
-    bgTex.colorSpace = THREE.SRGBColorSpace;
-    scene.background = bgTex;
-    try {
-      const pm = new THREE.PMREMGenerator(renderer);
-      scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
-      scene.environmentIntensity = 0.6;
-      pm.dispose();
-    } catch {
-      /* optional */
-    }
-    scene.add(new THREE.HemisphereLight('#fff6ea', '#3b342c', 0.9));
+    const boot = () => {
+      if (cancelled) return;
+      const w = el.clientWidth || 360;
+      const h = el.clientHeight || 460;
+      renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
+      renderer.setSize(w, h);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 0.95;
+      el.appendChild(renderer.domElement);
+      renderer.domElement.setAttribute('aria-label', 'Avatar preview. Drag to rotate.');
+
+      const scene = new THREE.Scene();
+      const bg = document.createElement('canvas');
+      bg.width = 4;
+      bg.height = 256;
+      const g = bg.getContext('2d')!;
+      const grad = g.createLinearGradient(0, 0, 0, 256);
+      grad.addColorStop(0, '#3a3631');
+      grad.addColorStop(0.6, '#26231f');
+      grad.addColorStop(1, '#171512');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 4, 256);
+      bgTex = new THREE.CanvasTexture(bg);
+      bgTex.colorSpace = THREE.SRGBColorSpace;
+      scene.background = bgTex;
+      scene.add(new THREE.HemisphereLight('#fff6ea', '#3b342c', 0.9));
     const key = new THREE.DirectionalLight('#fff1de', 1.6);
     key.position.set(1.5, 3, 2.5);
     scene.add(key);
@@ -114,7 +152,7 @@ export const AvatarPreview = forwardRef<AvatarPreviewHandle, Props>(({ config, f
     const f = FOCUS[focusRef.current];
     const camera = new THREE.PerspectiveCamera(32, w / h, 0.02, 50);
     camera.position.set(f.target[0] + Math.sin(ANGLE.three_quarter) * f.dist, f.target[1] + f.dist * 0.12, f.target[2] + Math.cos(ANGLE.three_quarter) * f.dist);
-    const controls = new OrbitControls(camera, renderer.domElement);
+    controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(...f.target);
     controls.enableDamping = true;
     controls.enablePan = false;
@@ -126,70 +164,71 @@ export const AvatarPreview = forwardRef<AvatarPreviewHandle, Props>(({ config, f
     controls.update();
 
     state.current = { renderer, scene, camera, controls, rig: null };
+    applyRef.current(configRef.current, focusRef.current);
 
-    let raf = 0;
     const clock = new THREE.Clock();
+    let acc = 0;
     const loop = () => {
       raf = requestAnimationFrame(loop);
+      if (!renderer) return;
       const dt = Math.min(0.05, clock.getDelta());
-      controls.update();
-      state.current?.rig?.update(dt, { speed: 0, turnRate: 0 });
+      acc += dt;
+      if (acc < 1 / 30) return;
+      const step = acc;
+      acc = 0;
+      controls?.update();
+      state.current?.rig?.update(step, { speed: 0, turnRate: 0 });
       renderer.render(scene, camera);
     };
     loop();
+    envTimer = window.setTimeout(() => {
+      if (cancelled || !renderer) return;
+      try {
+        const pm = new THREE.PMREMGenerator(renderer);
+        scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+        scene.environmentIntensity = 0.6;
+        pm.dispose();
+      } catch {
+        /* lights already cover the preview */
+      }
+    }, 120);
     const onResize = () => {
       const ww = el.clientWidth;
       const hh = el.clientHeight;
-      if (!ww || !hh) return;
+      if (!ww || !hh || !renderer) return;
       camera.aspect = ww / hh;
       camera.updateProjectionMatrix();
       renderer.setSize(ww, hh);
     };
-    const ro = new ResizeObserver(onResize);
+    ro = new ResizeObserver(onResize);
     ro.observe(el);
+    };
+
+    raf = requestAnimationFrame(boot);
     return () => {
+      cancelled = true;
+      glbToken += 1;
       cancelAnimationFrame(raf);
-      ro.disconnect();
+      window.clearTimeout(envTimer);
+      ro?.disconnect();
       state.current?.rig?.dispose();
-      controls.dispose();
-      renderer.dispose();
-      renderer.domElement.remove();
-      bgTex.dispose();
+      controls?.dispose();
+      renderer?.dispose();
+      renderer?.domElement.remove();
+      bgTex?.dispose();
       state.current = null;
     };
   }, []);
 
   // (re)build the avatar when the configuration changes
   useEffect(() => {
-    const s = state.current;
-    if (!s) return;
     let cancelled = false;
-    if (config.glbUrl && config.glbUrl !== s.glbUrl) {
-      createGlbAvatar(config.glbUrl, config, s.renderer)
-        .then((rig) => {
-          if (cancelled || !state.current) return rig.dispose();
-          state.current.rig?.dispose();
-          state.current.rig = rig;
-          state.current.glbUrl = config.glbUrl;
-          s.scene.add(rig.root);
-        })
-        .catch(() => {
-          /* fall back below on next config change */
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (!config.glbUrl) {
-      if (s.rig && !s.glbUrl) s.rig.applyConfig(config);
-      else {
-        s.rig?.dispose();
-        s.glbUrl = undefined;
-        s.rig = createHumanAvatar(config);
-        s.scene.add(s.rig.root);
-      }
-      s.rig.pose(focus === 'wrist' ? 'showWrist' : 'idle');
-    }
+    applyRef.current = (next, nextFocus) => {
+      const s = state.current;
+      if (!s || cancelled) return;
+      paintAvatar(s, next, nextFocus);
+    };
+    applyRef.current(config, focus);
     return () => {
       cancelled = true;
     };

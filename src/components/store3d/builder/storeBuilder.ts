@@ -142,6 +142,7 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
   const targets: InteractiveTarget[] = [];
   const videoScreens: VideoScreen[] = [];
   const ledAnims: ((t: number) => void)[] = [];
+  let ledCursor = 0;
   const ledById = new Map((opts.leds || []).map((l) => [l.id, l]));
   const hitGroup = new THREE.Group();
 
@@ -789,7 +790,12 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     animate: (t: number, dt: number) => {
       centre.update(t, dt);
       facadeAnim(t);
-      for (const draw of ledAnims) draw(t);
+      const n = ledAnims.length;
+      if (!n) return;
+      // A few boards per frame. Every screen still scrolls; one frame never redraws them all.
+      const batch = Math.max(1, Math.ceil(n / 4));
+      for (let i = 0; i < batch; i++) ledAnims[(ledCursor + i) % n](t);
+      ledCursor = (ledCursor + batch) % n;
     },
     roomLighting,
     deptBySlot,
