@@ -1,0 +1,15 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Uploaded product media (videos, captions, images, GLB models)
+uploads/
+
+# SQLite runtime files (the database itself is committed)
+*.db-wal
+*.db-shm

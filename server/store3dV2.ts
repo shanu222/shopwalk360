@@ -1,0 +1,737 @@
+/**
+ * ShopWalk 360 — Store experience v2 (server side)
+ *
+ * - Schema migration for department rooms, fixtures, promo screens, product media/3D/try-on fields
+ * - Customer avatar storage (configuration only — never the original photograph)
+ * - Media uploads (MP4/WebM video, images, GLB models, WebVTT captions)
+ * - Optional external integrations (photo→avatar, photo garment try-on, AI product assistant).
+ *   Each one is inert until its environment variables are configured; nothing is faked.
+ */
+import express, { Router, Request, Response, NextFunction } from 'express';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+import { db } from './db.js';
+import { r2Enabled, putToR2 } from './production.js';
+
+export const UPLOAD_ROOT = path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads'));
+
+const LAYOUT_VERSION = '2';
+
+// ---------------------------------------------------------------------------
+// MIGRATION
+// ---------------------------------------------------------------------------
+function addColumn(table: string, col: string, typeDef: string) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${typeDef}`);
+}
+
+function getSetting(key: string): string | undefined {
+  const row = db.prepare('SELECT value FROM website_settings WHERE key = ?').get(key) as { value: string } | undefined;
+  return row?.value;
+}
+
+function setSetting(key: string, value: string) {
+  db.prepare('INSERT INTO website_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
+}
+
+export function migrateStoreExperienceV2() {
+  // Products: media, 3D, dimensions, try-on and grounded content fields
+  addColumn('products', 'dimensions_json', 'TEXT'); // {"w":cm,"h":cm,"d":cm}
+  addColumn('products', 'model_3d_url', 'TEXT');
+  addColumn('products', 'model_preset', 'TEXT');
+  addColumn('products', 'demo_video_type', 'TEXT'); // file | youtube | vimeo
+  addColumn('products', 'demo_video_poster', 'TEXT');
+  addColumn('products', 'demo_video_captions', 'TEXT');
+  addColumn('products', 'demo_video_title', 'TEXT');
+  addColumn('products', 'features', 'TEXT'); // newline separated
+  addColumn('products', 'in_the_box', 'TEXT');
+  addColumn('products', 'usage_instructions', 'TEXT');
+  addColumn('products', 'care_instructions', 'TEXT');
+  addColumn('products', 'ingredients', 'TEXT');
+  addColumn('products', 'wearable_slot', 'TEXT'); // top | bottom | shoes | watch | glasses | bag
+  addColumn('products', 'color_hex_map', 'TEXT'); // {"Navy":"#1f2a44"}
+  addColumn('products', 'is_sample', 'INTEGER DEFAULT 0');
+
+  // Departments become real rooms in the galleria
+  addColumn('store_departments', 'slot_index', 'INTEGER');
+  addColumn('store_departments', 'interior_style', 'TEXT');
+  addColumn('store_departments', 'lighting', 'TEXT');
+  addColumn('store_departments', 'info_text', 'TEXT');
+  addColumn('store_departments', 'entrance_style', 'TEXT');
+  addColumn('store_departments', 'is_active', 'INTEGER DEFAULT 1');
+
+  // Fixtures
+  addColumn('store_shelves', 'slot_code', 'TEXT');
+  addColumn('store_shelves', 'shelf_level', 'INTEGER DEFAULT 2');
+  addColumn('store_shelves', 'facing_count', 'INTEGER DEFAULT 4');
+  addColumn('store_shelves', 'zone', 'TEXT DEFAULT \'display\'');
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS store_promo_screens (
+      id TEXT PRIMARY KEY,
+      location TEXT NOT NULL DEFAULT 'lobby',
+      title TEXT NOT NULL,
+      subtitle TEXT,
+      product_id TEXT REFERENCES products(id) ON DELETE SET NULL,
+      accent_color TEXT DEFAULT '#c8a96a',
+      display_order INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 1
+    );
+
+    CREATE TABLE IF NOT EXISTS customer_avatars (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      config_json TEXT NOT NULL,
+      consent_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
+  if (getSetting('store3d_layout_version') === LAYOUT_VERSION) return;
+  console.log('Migrating ShopWalk 360 store layout to v2 (department rooms + fixtures)...');
+
+  const tx = db.transaction(() => {
+    // 1. Remove unrelated stock-footage clips that were seeded as "demonstration videos".
+    //    They did not show the products, so presenting them as product demos would be misleading.
+    db.prepare("UPDATE products SET demo_video_url = NULL WHERE demo_video_url LIKE '%mixkit.co%'").run();
+    db.prepare("UPDATE store_shelves SET demo_video_url = NULL WHERE demo_video_url LIKE '%mixkit.co%'").run();
+
+    // 2. Correct try-on types so try-on is only offered where it makes sense
+    const productMeta: Record<string, { tryon: string; preset: string; slot?: string | null; hex?: Record<string, string> }> = {
+      prod_1: { tryon: 'electronics', preset: 'charger', hex: { 'Matte Black': '#1d1f22', 'Arctic White': '#eef0f2', 'Titanium Gray': '#7d8288' } },
+      prod_2: { tryon: 'none', preset: 'kettle', hex: { 'Matte Black & Walnut': '#1c1c1c', 'Brushed Stainless': '#b9bcbf', 'Pearl White': '#f1efe9' } },
+      prod_3: { tryon: 'none', preset: 'wallet', hex: { 'Vintage Saddle Tan': '#a8683a', 'Deep Charcoal': '#34363a', 'Cognac Brown': '#7a3f1e' } },
+      prod_4: { tryon: 'electronics', preset: 'tire_inflator', hex: { 'Obsidian Black': '#1b1c1f', 'Metallic Silver': '#a9adb2' } },
+      prod_5: { tryon: 'none', preset: 'diffuser', hex: { 'Dark Walnut': '#4a2f22', 'Japanese Zen Oak': '#b98d5f', 'Minimalist White': '#f2f0eb' } },
+      prod_6: { tryon: 'electronics', preset: 'laptop_stand', hex: { 'Space Gray': '#5b5e63', 'Silver Aluminum': '#c3c6ca', 'Rose Gold': '#c99b86' } },
+      prod_7: { tryon: 'none', preset: 'packing_cubes', hex: { 'Midnight Slate': '#2f3640', 'Forest Olive': '#4d5a3a', 'Navy Blue': '#1f2d4d' } },
+      prod_8: { tryon: 'electronics', preset: 'car_mount', hex: { 'Matte Black': '#1d1f22', 'Space Gray': '#5b5e63' } },
+      prod_shoes_1: { tryon: 'footwear', preset: 'shoe', slot: 'shoes', hex: { 'Triple Black': '#18191b', 'Chalk White / Gum': '#ecebe6', 'Carbon Slate': '#4a4f56' } },
+      prod_watch_1: {
+        tryon: 'watch', preset: 'watch', slot: 'watch',
+        hex: { 'Silver Case / Black Leather': '#c9ccd0', 'Obsidian Black / Milanese Mesh': '#232427', 'Rose Gold / Navy': '#c99b86' },
+      },
+      prod_beauty_1: { tryon: 'beauty', preset: 'lip_tint', hex: { 'Ruby Velvet': '#8e1b2b', 'Nude Rose': '#b9706c', 'Plum Ember': '#5c2240', 'Peach Glaze': '#d9805f' } },
+      prod_fitness_1: { tryon: 'none', preset: 'grip_trainer', hex: { 'Stealth Matte Black': '#1c1d1f', 'Gunmetal Silver': '#7b7f85' } },
+    };
+    const updMeta = db.prepare('UPDATE products SET tryon_type = ?, model_preset = ?, wearable_slot = ?, color_hex_map = ? WHERE id = ?');
+    Object.entries(productMeta).forEach(([id, m]) => updMeta.run(m.tryon, m.preset, m.slot ?? null, m.hex ? JSON.stringify(m.hex) : null, id));
+
+    // Dimensions that are stated in the product's own specification are copied into the structured field.
+    db.prepare(`UPDATE products SET dimensions_json = ? WHERE id = 'prod_3' AND dimensions_json IS NULL`).run(JSON.stringify({ w: 10.5, h: 8.2, d: 1.1 }));
+
+    // 3. Clearly-labelled SAMPLE listings so clothing / accessory / furniture experiences can be tested.
+    //    They are flagged is_sample = 1, shown with a "Sample listing" badge, and removable in one click from Admin.
+    const insertSample = db.prepare(`
+      INSERT OR IGNORE INTO products (id, slug, name, sku, category_id, description, short_description, specifications,
+        cost_price, regular_price, discount_price, stock_quantity, is_featured, is_published, brand,
+        tryon_type, color_options, size_options, model_preset, wearable_slot, color_hex_map, dimensions_json, is_sample)
+      VALUES (?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, 0, 1, 'Sample Catalogue', ?, ?, ?, ?, ?, ?, ?, 1)
+    `);
+    const sampleNote = 'This is a SAMPLE listing created to demonstrate the ShopWalk 360 experience. Replace it with a real product or delete it from Admin → 3D Store → Product Experience.';
+    const samples = [
+      ['prod_sample_shirt', 'sample-oxford-shirt', 'Oxford Button-Down Shirt (Sample Listing)', 'SMP-AP-SHIRT', 'cat_lifestyle', 'fashion', 'White, Sky Blue, Navy', 'S, M, L, XL', 'shirt', 'top', { White: '#f4f4f1', 'Sky Blue': '#9cc3e6', Navy: '#1f2a44' }, null, 1400, 3200, null, 15],
+      ['prod_sample_chinos', 'sample-slim-chinos', 'Slim Chino Trousers (Sample Listing)', 'SMP-AP-CHINO', 'cat_lifestyle', 'fashion', 'Khaki, Navy, Charcoal', '30, 32, 34, 36', 'trousers', 'bottom', { Khaki: '#b9a27a', Navy: '#1f2a44', Charcoal: '#3a3d42' }, null, 1500, 3600, null, 15],
+      ['prod_sample_armchair', 'sample-lounge-armchair', 'Lounge Armchair (Sample Listing)', 'SMP-HM-CHAIR', 'cat_home', 'furniture', 'Oat Linen, Forest Green, Charcoal', null, 'armchair', null, { 'Oat Linen': '#d8cbb3', 'Forest Green': '#3f5a45', Charcoal: '#3a3c40' }, { w: 78, h: 82, d: 80 }, 18000, 34900, null, 4],
+      ['prod_sample_sidetable', 'sample-oak-side-table', 'Round Oak Side Table (Sample Listing)', 'SMP-HM-TABLE', 'cat_home', 'furniture', 'Natural Oak, Walnut Stain', null, 'side_table', null, { 'Natural Oak': '#c49a6c', 'Walnut Stain': '#5a3a26' }, { w: 50, h: 55, d: 50 }, 5200, 11500, null, 6],
+      ['prod_sample_sunglasses', 'sample-acetate-sunglasses', 'Classic Acetate Sunglasses (Sample Listing)', 'SMP-AC-SUNG', 'cat_watches', 'watch', 'Black, Tortoise', null, 'sunglasses', 'glasses', { Black: '#151515', Tortoise: '#6b3d1f' }, null, 900, 2400, null, 20],
+      ['prod_sample_tote', 'sample-canvas-tote', 'Canvas Tote Bag (Sample Listing)', 'SMP-AC-TOTE', 'cat_lifestyle', 'fashion', 'Natural, Black', null, 'tote_bag', 'bag', { Natural: '#e6dcc6', Black: '#1b1b1b' }, null, 700, 1900, null, 25],
+    ] as const;
+    samples.forEach((s) => {
+      insertSample.run(s[0], s[1], s[2], s[3], s[4], sampleNote, 'Sample listing for testing the virtual try-on and room preview.',
+        s[12], s[13], s[14], s[15], s[5], s[6], s[7], s[8], s[9], JSON.stringify(s[10]), s[11] ? JSON.stringify(s[11]) : null);
+    });
+
+    // 4. Departments → 12 rooms. Odd department numbers on the west (left) side, even on the east (right) side.
+    const deptPlan: [string, string, string, number, number, string, string, string, string][] = [
+      // id, name, category, aisle, slot, colour, style, lighting, description
+      ['dept_elec', 'Electronics & Gadgets', 'cat_electronics', 1, 0, '#3b82f6', 'tech', 'cool', 'Chargers, cables, smart gadgets and mobile accessories'],
+      ['dept_home', 'Home & Living', 'cat_home', 2, 6, '#c2410c', 'warm_wood', 'warm', 'Furniture, décor and home comfort'],
+      ['dept_kitchen', 'Kitchen & Dining', 'cat_kitchen', 3, 1, '#4d7c0f', 'kitchen', 'neutral', 'Coffee equipment and kitchen tools'],
+      ['dept_fashion', 'Fashion & Clothing', 'cat_lifestyle', 4, 7, '#9f1239', 'boutique', 'warm', 'Clothing, leather goods and the virtual fitting area'],
+      ['dept_shoes', 'Shoes & Footwear', 'cat_shoes', 5, 2, '#b45309', 'concrete', 'neutral', 'Running, everyday and formal footwear'],
+      ['dept_watches', 'Watches & Accessories', 'cat_watches', 6, 8, '#1e3a8a', 'luxury', 'warm', 'Watches, eyewear and accessories'],
+      ['dept_beauty', 'Beauty & Personal Care', 'cat_beauty', 7, 3, '#be185d', 'spa', 'warm', 'Cosmetics, skincare and personal care'],
+      ['dept_fitness', 'Fitness & Sports', 'cat_fitness', 8, 9, '#ca8a04', 'gym', 'cool', 'Training equipment and sports gear'],
+      ['dept_car', 'Car Accessories', 'cat_car', 9, 4, '#b91c1c', 'garage', 'cool', 'Inflators, mounts and in-car accessories'],
+      ['dept_travel', 'Travel & Luggage', 'cat_travel', 10, 10, '#0f766e', 'travel', 'neutral', 'Luggage, organisers and travel essentials'],
+      ['dept_office', 'Office & Study', 'cat_office', 11, 5, '#4338ca', 'study', 'neutral', 'Ergonomic workspace and study accessories'],
+      ['dept_lifestyle', 'Gifts & Lifestyle', 'cat_lifestyle', 12, 11, '#a21caf', 'gallery', 'warm', 'Gift ideas and lifestyle pieces'],
+    ];
+    const upsertDept = db.prepare(`
+      INSERT INTO store_departments (id, category_id, name, sign_label, aisle_number, pos_x, pos_z, theme_color, description, slot_index, interior_style, lighting, is_active, entrance_style)
+      VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, 1, 'glass')
+      ON CONFLICT(id) DO UPDATE SET category_id = excluded.category_id, name = excluded.name, sign_label = excluded.sign_label,
+        aisle_number = excluded.aisle_number, theme_color = excluded.theme_color, description = excluded.description,
+        slot_index = excluded.slot_index, interior_style = excluded.interior_style, lighting = excluded.lighting, is_active = 1,
+        entrance_style = excluded.entrance_style
+    `);
+    deptPlan.forEach((d) => upsertDept.run(d[0], d[2], d[1], d[1], d[3], d[5], d[8], d[4], d[6], d[7]));
+
+    // 5. Fixtures (re-seeded on the new slot grid). Positions are derived from department + slot on the client.
+    db.prepare('DELETE FROM store_shelves').run();
+    const insertFixture = db.prepare(`
+      INSERT INTO store_shelves (id, department_id, shelf_code, aisle_label, pos_x, pos_y, pos_z, rotation_y, shelf_type, product_id,
+        featured_label, slot_code, shelf_level, facing_count, zone)
+      VALUES (?, ?, ?, ?, 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    type F = [string, string, string | null, string | null, number?, string?];
+    // [slot, fixture type, product, badge, zone?]
+    const fixtures: Record<string, F[]> = {
+      dept_elec: [
+        ['WIN1', 'island_display', 'prod_1', 'NEW IN'], ['WIN2', 'island_display', 'prod_8', null],
+        ['F1', 'gondola', 'prod_1', null], ['F2', 'gondola', 'prod_8', null], ['F3', 'gondola', 'prod_6', null],
+        ['L1', 'wall_mount', 'prod_1', null], ['R1', 'wall_mount', 'prod_8', null],
+        ['D1', 'demo_table', 'prod_1', 'TRY IT', 2, 'demo'],
+      ],
+      dept_home: [
+        ['WIN1', 'room_set', 'prod_sample_armchair', null], ['WIN2', 'island_display', 'prod_5', null],
+        ['F1', 'room_set', 'prod_sample_armchair', null], ['F2', 'room_set', 'prod_sample_sidetable', null],
+        ['L1', 'wall_mount', 'prod_5', null], ['BW2', 'wall_mount', 'prod_5', null],
+        ['D1', 'room_set', 'prod_sample_sidetable', 'ROOM PREVIEW', 2, 'demo'],
+      ],
+      dept_kitchen: [
+        ['WIN1', 'island_display', 'prod_2', null], ['F1', 'gondola', 'prod_2', null], ['L1', 'wall_mount', 'prod_2', null],
+        ['D1', 'demo_kitchen', 'prod_2', 'LIVE DEMO', 2, 'demo'],
+      ],
+      dept_fashion: [
+        ['WIN1', 'mannequin', 'prod_sample_shirt', 'NEW SEASON'], ['WIN2', 'mannequin', 'prod_sample_chinos', null],
+        ['F1', 'clothing_rack', 'prod_sample_shirt', null], ['F2', 'clothing_rack', 'prod_sample_chinos', null],
+        ['F3', 'glass_cabinet', 'prod_3', null], ['F4', 'island_display', 'prod_sample_tote', null],
+        ['L1', 'wall_mount', 'prod_sample_shirt', null], ['R1', 'wall_mount', 'prod_sample_chinos', null],
+        ['D1', 'fitting_station', 'prod_sample_shirt', 'VIRTUAL FITTING', 2, 'demo'],
+      ],
+      dept_shoes: [
+        ['WIN1', 'island_display', 'prod_shoes_1', null], ['BW1', 'shoe_wall', 'prod_shoes_1', null], ['BW3', 'shoe_wall', 'prod_shoes_1', null],
+        ['F1', 'island_display', 'prod_shoes_1', null], ['D1', 'demo_table', 'prod_shoes_1', '360° VIEW', 2, 'demo'],
+      ],
+      dept_watches: [
+        ['WIN1', 'glass_cabinet', 'prod_watch_1', null], ['WIN2', 'glass_cabinet', 'prod_sample_sunglasses', null],
+        ['F1', 'glass_cabinet', 'prod_watch_1', null], ['F2', 'glass_cabinet', 'prod_sample_sunglasses', null],
+        ['BW2', 'wall_mount', 'prod_sample_sunglasses', null],
+        ['D1', 'fitting_station', 'prod_watch_1', 'TRY ON', 2, 'demo'],
+      ],
+      dept_beauty: [
+        ['WIN1', 'island_display', 'prod_beauty_1', null], ['F1', 'vanity', 'prod_beauty_1', null], ['L1', 'wall_mount', 'prod_beauty_1', null],
+        ['D1', 'fitting_station', 'prod_beauty_1', 'SHADE STUDIO', 2, 'demo'],
+      ],
+      dept_fitness: [
+        ['WIN1', 'island_display', 'prod_fitness_1', null], ['F1', 'gondola', 'prod_fitness_1', null], ['R1', 'wall_mount', 'prod_fitness_1', null],
+        ['D1', 'demo_table', 'prod_fitness_1', 'DEMO ZONE', 2, 'demo'],
+      ],
+      dept_car: [
+        ['WIN1', 'island_display', 'prod_4', null], ['F1', 'gondola', 'prod_4', null], ['F2', 'gondola', 'prod_8', null],
+        ['D1', 'demo_table', 'prod_4', 'LIVE DEMO', 2, 'demo'],
+      ],
+      dept_travel: [
+        ['WIN1', 'island_display', 'prod_7', null], ['F1', 'gondola', 'prod_7', null], ['BW2', 'wall_mount', 'prod_7', null],
+      ],
+      dept_office: [
+        ['WIN1', 'island_display', 'prod_6', null], ['F1', 'gondola', 'prod_6', null],
+        ['D1', 'demo_table', 'prod_6', 'DESK DEMO', 2, 'demo'],
+      ],
+      dept_lifestyle: [
+        ['WIN1', 'island_display', 'prod_sample_tote', null], ['WIN2', 'island_display', 'prod_3', 'GIFT IDEA'],
+        ['F1', 'glass_cabinet', 'prod_3', null], ['F2', 'island_display', 'prod_5', null], ['BW2', 'wall_mount', 'prod_sample_tote', null],
+      ],
+    };
+    const deptNumber: Record<string, number> = Object.fromEntries(deptPlan.map((d) => [d[0], d[3]]));
+    Object.entries(fixtures).forEach(([deptId, list]) => {
+      list.forEach((f, i) => {
+        const n = String(deptNumber[deptId]).padStart(2, '0');
+        insertFixture.run(
+          `fx_${deptId.replace('dept_', '')}_${f[0].toLowerCase()}`, deptId, `D${n}-${f[0]}`, `Aisle ${n} · Bay ${f[0]}`,
+          f[1], f[2], f[3], f[0], f[4] ?? 2, 4, f[5] ?? "display",
+        );
+        void i;
+      });
+    });
+
+    // 6. Lobby promotional screens (linked to live products, not hard-coded copy)
+    db.prepare('DELETE FROM store_promo_screens').run();
+    const insPromo = db.prepare('INSERT INTO store_promo_screens (id, location, title, subtitle, product_id, accent_color, display_order) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    insPromo.run('promo_1', 'lobby', 'Now in Electronics', 'Visit Dept 01 on your left', 'prod_1', '#3b82f6', 1);
+    insPromo.run('promo_2', 'lobby', 'Watches & Accessories', 'Try a watch on your avatar · Dept 06', 'prod_watch_1', '#c8a96a', 2);
+    insPromo.run('promo_3', 'lobby', 'Virtual Fitting Area', 'Fashion & Clothing · Dept 04', 'prod_sample_shirt', '#9f1239', 3);
+
+    setSetting('store3d_layout_version', LAYOUT_VERSION);
+  });
+  tx();
+  console.log('ShopWalk 360 v2 migration complete.');
+}
+
+// ---------------------------------------------------------------------------
+// HELPERS
+// ---------------------------------------------------------------------------
+let getCurrentUserId: () => string = () => '';
+export function bindSession(fn: () => string) {
+  getCurrentUserId = fn;
+}
+
+function currentUser(): { id: string; role: string } | null {
+  const id = getCurrentUserId();
+  if (!id) return null;
+  return (db.prepare('SELECT id, role FROM users WHERE id = ?').get(id) as { id: string; role: string }) || null;
+}
+
+function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  const u = currentUser();
+  if (!u || (u.role !== 'admin' && u.role !== 'manager')) {
+    return res.status(403).json({ error: 'Access denied: Administrator privileges required.' });
+  }
+  next();
+}
+
+const safeJson = (s: unknown) => {
+  if (typeof s !== 'string' || !s) return null;
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+};
+
+// ---------------------------------------------------------------------------
+// ROUTES
+// ---------------------------------------------------------------------------
+export const store3dRouter = Router();
+
+// Full layout for the 3D experience (departments, fixtures with live product data, promo screens)
+store3dRouter.get('/store3d/v2/layout', (_req, res) => {
+  try {
+    const departments = db.prepare(`
+      SELECT d.*, c.slug AS category_slug, c.name AS category_name,
+        (SELECT COUNT(*) FROM store_shelves s WHERE s.department_id = d.id) AS shelf_count
+      FROM store_departments d LEFT JOIN categories c ON c.id = d.category_id
+      WHERE COALESCE(d.is_active, 1) = 1
+      ORDER BY d.aisle_number ASC
+    `).all();
+
+    const shelves = db.prepare(`
+      SELECT s.*, p.name AS product_name, p.slug AS product_slug, p.sku AS product_sku, p.regular_price, p.discount_price,
+        p.cost_price, p.stock_quantity, p.brand AS product_brand, p.short_description, p.tryon_type AS product_tryon_type,
+        p.model_preset, p.model_3d_url, p.wearable_slot, p.color_options AS product_color_options, p.color_hex_map,
+        p.dimensions_json, p.demo_video_url AS product_video_url, p.demo_video_type AS product_video_type,
+        p.demo_video_poster AS product_video_poster, p.is_sample,
+        (SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) AS primary_image,
+        (SELECT ROUND(AVG(rating), 1) FROM reviews WHERE product_id = p.id) AS average_rating,
+        (SELECT COUNT(*) FROM reviews WHERE product_id = p.id) AS review_count,
+        d.name AS department_name, d.sign_label AS department_sign, d.theme_color, d.aisle_number AS department_number
+      FROM store_shelves s
+      LEFT JOIN products p ON p.id = s.product_id AND p.is_published = 1
+      LEFT JOIN store_departments d ON d.id = s.department_id
+      ORDER BY s.shelf_code ASC
+    `).all();
+
+    const promos = db.prepare(`
+      SELECT ps.*, p.name AS product_name, p.slug AS product_slug, p.regular_price, p.discount_price,
+        (SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) AS primary_image
+      FROM store_promo_screens ps LEFT JOIN products p ON p.id = ps.product_id
+      WHERE ps.is_active = 1 ORDER BY ps.display_order ASC
+    `).all();
+
+    const storeName = 'ShopWalk 360';
+    res.json({ storeName, departments, shelves, promos, layoutVersion: Number(LAYOUT_VERSION) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Recent real reviews for the storefront (nothing hard-coded)
+store3dRouter.get('/reviews/featured', (_req, res) => {
+  const reviews = db.prepare(`
+    SELECT r.id, r.product_id, r.reviewer_name, r.rating, r.title, r.comment, r.is_verified_purchase, r.created_at, p.name AS product_name
+    FROM reviews r JOIN products p ON p.id = r.product_id
+    WHERE r.rating >= 4 ORDER BY r.created_at DESC LIMIT 3
+  `).all();
+  res.json({ reviews });
+});
+
+// Integration status (lets the UI show what is connected, without exposing secrets)
+store3dRouter.get('/experience/integrations', (_req, res) => {
+  res.json({
+    avatarGeneration: !!(process.env.AVATAR_PROVIDER_URL && process.env.AVATAR_PROVIDER_KEY),
+    garmentTryOn: !!(process.env.TRYON_PROVIDER_URL && process.env.TRYON_PROVIDER_KEY),
+    aiAssistant: !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY',
+  });
+});
+
+// ---------------- Avatar (configuration only; access restricted to the signed-in owner) ----------------
+const MAX_AVATAR_BYTES = 8 * 1024;
+
+function sanitiseAvatarConfig(cfg: any) {
+  if (!cfg || typeof cfg !== 'object') return null;
+  const copy = { ...cfg };
+  // Never persist photographs or image data, whatever the client sends.
+  delete copy.customPhotoUrl;
+  delete copy.photo;
+  delete copy.photoDataUrl;
+  const json = JSON.stringify(copy);
+  if (json.length > MAX_AVATAR_BYTES || /data:image\//i.test(json)) return null;
+  return json;
+}
+
+store3dRouter.get('/avatar', (_req, res) => {
+  const u = currentUser();
+  if (!u) return res.json({ signedIn: false, avatar: null });
+  const row = db.prepare('SELECT config_json, consent_at, updated_at FROM customer_avatars WHERE user_id = ?').get(u.id) as any;
+  res.json({ signedIn: true, avatar: row ? { config: safeJson(row.config_json), consentAt: row.consent_at, updatedAt: row.updated_at } : null });
+});
+
+store3dRouter.put('/avatar', (req, res) => {
+  const u = currentUser();
+  if (!u) return res.status(401).json({ error: 'Sign in to save your avatar to your account.' });
+  if (req.body?.consent !== true) return res.status(400).json({ error: 'Explicit consent is required to save your avatar.' });
+  const json = sanitiseAvatarConfig(req.body?.config);
+  if (!json) return res.status(400).json({ error: 'Invalid avatar configuration.' });
+  db.prepare(`
+    INSERT INTO customer_avatars (user_id, config_json, consent_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))
+    ON CONFLICT(user_id) DO UPDATE SET config_json = excluded.config_json, consent_at = excluded.consent_at, updated_at = datetime('now')
+  `).run(u.id, json);
+  res.json({ success: true });
+});
+
+store3dRouter.delete('/avatar', (_req, res) => {
+  const u = currentUser();
+  if (!u) return res.json({ success: true });
+  db.prepare('DELETE FROM customer_avatars WHERE user_id = ?').run(u.id);
+  res.json({ success: true });
+});
+
+/**
+ * Photo → 3D avatar generation through an external provider.
+ * The photo is forwarded in memory and never written to disk or the database.
+ * Expected provider contract (adapt in one place if your vendor differs):
+ *   POST {AVATAR_PROVIDER_URL}  Authorization: Bearer {AVATAR_PROVIDER_KEY}
+ *   body: { image: "<base64 jpeg>", consent: true, purpose: "avatar" }
+ *   200:  { glbUrl: "https://.../avatar.glb", appearance?: { skinTone, hairColor, hairStyle } }
+ */
+store3dRouter.post('/avatar/generate', express.json({ limit: '6mb' }), async (req, res) => {
+  const url = process.env.AVATAR_PROVIDER_URL;
+  const key = process.env.AVATAR_PROVIDER_KEY;
+  if (!url || !key) return res.status(501).json({ configured: false, error: 'No photo-to-avatar service is configured.' });
+  if (req.body?.consent !== true || typeof req.body?.image !== 'string') return res.status(400).json({ error: 'Consent and image are required.' });
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify({ image: req.body.image, consent: true, purpose: 'avatar' }),
+    });
+    const data: any = await r.json().catch(() => ({}));
+    if (!r.ok || typeof data.glbUrl !== 'string') return res.status(502).json({ error: 'Avatar service did not return a model.' });
+    res.json({ glbUrl: data.glbUrl, appearance: data.appearance || null });
+  } catch {
+    res.status(502).json({ error: 'Avatar service unreachable.' });
+  }
+});
+
+/**
+ * Photo garment try-on (AI image generation) through an external provider.
+ *   POST {TRYON_PROVIDER_URL}  Authorization: Bearer {TRYON_PROVIDER_KEY}
+ *   body: { person_image: base64, garment_image_url, garment_name, colour }
+ *   200:  { image: "<base64 png or https url>" }
+ */
+store3dRouter.post('/tryon/garment', express.json({ limit: '6mb' }), async (req, res) => {
+  const url = process.env.TRYON_PROVIDER_URL;
+  const key = process.env.TRYON_PROVIDER_KEY;
+  if (!url || !key) return res.status(501).json({ configured: false, error: 'No photo try-on service is configured.' });
+  const { image, productId, colour, consent } = req.body || {};
+  if (consent !== true || typeof image !== 'string' || !productId) return res.status(400).json({ error: 'Consent, photo and product are required.' });
+  const prod = db.prepare(`SELECT name, (SELECT image_url FROM product_images WHERE product_id = products.id AND is_primary = 1 LIMIT 1) AS img FROM products WHERE id = ?`).get(productId) as any;
+  if (!prod) return res.status(404).json({ error: 'Product not found' });
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify({ person_image: image, garment_image_url: prod.img, garment_name: prod.name, colour }),
+    });
+    const data: any = await r.json().catch(() => ({}));
+    if (!r.ok || typeof data.image !== 'string') return res.status(502).json({ error: 'Try-on service did not return an image.' });
+    res.json({ image: data.image });
+  } catch {
+    res.status(502).json({ error: 'Try-on service unreachable.' });
+  }
+});
+
+// ---------------- Grounded product assistant (optional AI) ----------------
+function productFacts(productId: string) {
+  const p = db.prepare('SELECT * FROM products WHERE id = ? OR slug = ?').get(productId, productId) as any;
+  if (!p) return null;
+  const specs = safeJson(p.specifications) || {};
+  const dims = safeJson(p.dimensions_json);
+  return {
+    name: p.name, brand: p.brand, description: p.description, short_description: p.short_description, specifications: specs,
+    dimensions_cm: dims, weight_kg: p.weight_kg, warranty: p.warranty, features: p.features, in_the_box: p.in_the_box,
+    usage_instructions: p.usage_instructions, care_instructions: p.care_instructions, ingredients: p.ingredients,
+    colours: p.color_options, sizes: p.size_options, price_pkr: p.discount_price || p.regular_price, in_stock: p.stock_quantity > 0,
+  };
+}
+
+store3dRouter.post('/assistant/ask', async (req, res) => {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key || key === 'MY_GEMINI_API_KEY') return res.status(501).json({ configured: false });
+  const { productId, question } = req.body || {};
+  if (!productId || typeof question !== 'string' || question.length > 500) return res.status(400).json({ error: 'Invalid question.' });
+  const facts = productFacts(productId);
+  if (!facts) return res.status(404).json({ error: 'Product not found' });
+  try {
+    const { GoogleGenAI } = await import('@google/genai');
+    const ai = new GoogleGenAI({ apiKey: key });
+    const prompt = [
+      'You are a retail product information assistant. Answer ONLY using the PRODUCT FACTS below.',
+      'If the facts do not contain the answer, reply exactly: "The product listing does not include that information."',
+      'Never invent specifications, measurements, compatibility, certifications or claims. Keep answers under 90 words.',
+      `PRODUCT FACTS (JSON): ${JSON.stringify(facts)}`,
+      `CUSTOMER QUESTION: ${question}`,
+    ].join('\n');
+    const result = await ai.models.generateContent({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash', contents: prompt });
+    res.json({ answer: (result as any).text || 'The product listing does not include that information.', source: 'ai' });
+  } catch (e: any) {
+    res.status(502).json({ error: 'AI assistant unavailable.' });
+  }
+});
+
+// ---------------- Admin: departments ----------------
+store3dRouter.get('/admin/store3d/departments', requireAdmin, (_req, res) => {
+  res.json({ departments: db.prepare('SELECT * FROM store_departments ORDER BY aisle_number').all() });
+});
+
+const deptFields = ['name', 'sign_label', 'category_id', 'aisle_number', 'theme_color', 'description', 'slot_index', 'interior_style', 'lighting', 'info_text', 'entrance_style', 'is_active'] as const;
+
+store3dRouter.post('/admin/store3d/departments', requireAdmin, (req, res) => {
+  const b = req.body || {};
+  if (!b.name) return res.status(400).json({ error: 'Department name is required.' });
+  const used = (db.prepare('SELECT slot_index FROM store_departments WHERE slot_index IS NOT NULL').all() as any[]).map((r) => r.slot_index);
+  const slot = b.slot_index ?? [...Array(12).keys()].find((i) => !used.includes(i));
+  if (slot === undefined) return res.status(400).json({ error: 'All 12 department rooms are in use. Deactivate or delete a department first.' });
+  if (used.includes(Number(slot))) return res.status(400).json({ error: 'That room position is already used by another department.' });
+  const id = `dept_${Date.now()}`;
+  const nextNum = ((db.prepare('SELECT MAX(aisle_number) AS m FROM store_departments').get() as any).m || 0) + 1;
+  db.prepare(`INSERT INTO store_departments (id, category_id, name, sign_label, aisle_number, pos_x, pos_z, theme_color, description, slot_index, interior_style, lighting, info_text, entrance_style, is_active)
+    VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, 1)`).run(
+    id, b.category_id || null, b.name, b.sign_label || b.name, Number(b.aisle_number || nextNum), b.theme_color || '#64748b', b.description || '',
+    Number(slot), b.interior_style || 'gallery', b.lighting || 'neutral', b.info_text || null, b.entrance_style || 'glass',
+  );
+  res.json({ success: true, id });
+});
+
+store3dRouter.put('/admin/store3d/departments/:id', requireAdmin, (req, res) => {
+  const b = req.body || {};
+  if (b.slot_index !== undefined && b.slot_index !== null) {
+    const clash = db.prepare('SELECT id FROM store_departments WHERE slot_index = ? AND id != ?').get(Number(b.slot_index), req.params.id);
+    if (clash) return res.status(400).json({ error: 'That room position is already used by another department.' });
+  }
+  const sets: string[] = [];
+  const vals: any[] = [];
+  deptFields.forEach((f) => {
+    if (b[f] !== undefined) {
+      sets.push(`${f} = ?`);
+      vals.push(b[f] === '' ? null : b[f]);
+    }
+  });
+  if (!sets.length) return res.json({ success: true });
+  db.prepare(`UPDATE store_departments SET ${sets.join(', ')} WHERE id = ?`).run(...vals, req.params.id);
+  res.json({ success: true });
+});
+
+store3dRouter.delete('/admin/store3d/departments/:id', requireAdmin, (req, res) => {
+  db.prepare('DELETE FROM store_departments WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// ---------------- Admin: fixtures (slot-based) ----------------
+store3dRouter.put('/admin/store3d/fixtures/:id', requireAdmin, (req, res) => {
+  const b = req.body || {};
+  const allowed = ['department_id', 'shelf_code', 'aisle_label', 'shelf_type', 'product_id', 'featured_label', 'slot_code', 'shelf_level', 'facing_count', 'zone', 'rotation_y'];
+  if (b.slot_code && b.department_id) {
+    const clash = db.prepare('SELECT id FROM store_shelves WHERE department_id = ? AND slot_code = ? AND id != ?').get(b.department_id, b.slot_code, req.params.id);
+    if (clash) return res.status(400).json({ error: 'Another fixture already occupies that position.' });
+  }
+  const sets: string[] = [];
+  const vals: any[] = [];
+  allowed.forEach((f) => {
+    if (b[f] !== undefined) {
+      sets.push(`${f} = ?`);
+      vals.push(b[f] === '' ? null : b[f]);
+    }
+  });
+  if (sets.length) db.prepare(`UPDATE store_shelves SET ${sets.join(', ')} WHERE id = ?`).run(...vals, req.params.id);
+  res.json({ success: true });
+});
+
+store3dRouter.post('/admin/store3d/fixtures', requireAdmin, (req, res) => {
+  const b = req.body || {};
+  if (!b.department_id || !b.slot_code) return res.status(400).json({ error: 'Department and position are required.' });
+  const clash = db.prepare('SELECT id FROM store_shelves WHERE department_id = ? AND slot_code = ?').get(b.department_id, b.slot_code);
+  if (clash) return res.status(400).json({ error: 'Another fixture already occupies that position.' });
+  const dept = db.prepare('SELECT aisle_number FROM store_departments WHERE id = ?').get(b.department_id) as any;
+  const n = String(dept?.aisle_number ?? 0).padStart(2, '0');
+  const id = `fx_${Date.now()}`;
+  db.prepare(`INSERT INTO store_shelves (id, department_id, shelf_code, aisle_label, pos_x, pos_y, pos_z, rotation_y, shelf_type, product_id, featured_label, slot_code, shelf_level, facing_count, zone)
+    VALUES (?, ?, ?, ?, 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?)`).run(
+    id, b.department_id, b.shelf_code || `D${n}-${b.slot_code}`, b.aisle_label || `Aisle ${n} · Bay ${b.slot_code}`, b.shelf_type || 'gondola',
+    b.product_id || null, b.featured_label || null, b.slot_code, Number(b.shelf_level || 2), Number(b.facing_count || 4), b.zone || 'display',
+  );
+  res.json({ success: true, id });
+});
+
+store3dRouter.delete('/admin/store3d/fixtures/:id', requireAdmin, (req, res) => {
+  db.prepare('DELETE FROM store_shelves WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// ---------------- Admin: promo screens ----------------
+store3dRouter.get('/admin/store3d/promos', requireAdmin, (_req, res) => {
+  res.json({ promos: db.prepare('SELECT * FROM store_promo_screens ORDER BY display_order').all() });
+});
+store3dRouter.post('/admin/store3d/promos', requireAdmin, (req, res) => {
+  const b = req.body || {};
+  if (!b.title) return res.status(400).json({ error: 'Title is required.' });
+  const id = `promo_${Date.now()}`;
+  db.prepare('INSERT INTO store_promo_screens (id, location, title, subtitle, product_id, accent_color, display_order, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, b.location || 'lobby', b.title, b.subtitle || null, b.product_id || null, b.accent_color || '#c8a96a', Number(b.display_order || 0), b.is_active === false ? 0 : 1);
+  res.json({ success: true, id });
+});
+store3dRouter.put('/admin/store3d/promos/:id', requireAdmin, (req, res) => {
+  const b = req.body || {};
+  db.prepare('UPDATE store_promo_screens SET location = ?, title = ?, subtitle = ?, product_id = ?, accent_color = ?, display_order = ?, is_active = ? WHERE id = ?')
+    .run(b.location || 'lobby', b.title, b.subtitle || null, b.product_id || null, b.accent_color || '#c8a96a', Number(b.display_order || 0), b.is_active === false ? 0 : 1, req.params.id);
+  res.json({ success: true });
+});
+store3dRouter.delete('/admin/store3d/promos/:id', requireAdmin, (req, res) => {
+  db.prepare('DELETE FROM store_promo_screens WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// ---------------- Admin: product experience (media, 3D, dims, try-on, content, variants) ----------------
+store3dRouter.get('/admin/products/:id/experience', requireAdmin, (req, res) => {
+  const p = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Product not found' });
+  res.json({
+    product: p,
+    images: db.prepare('SELECT * FROM product_images WHERE product_id = ? ORDER BY display_order').all(req.params.id),
+    variants: db.prepare('SELECT * FROM product_variants WHERE product_id = ?').all(req.params.id),
+    fixtures: db.prepare(`SELECT s.*, d.name AS department_name FROM store_shelves s LEFT JOIN store_departments d ON d.id = s.department_id WHERE s.product_id = ?`).all(req.params.id),
+  });
+});
+
+const experienceFields = [
+  'dimensions_json', 'model_3d_url', 'model_preset', 'demo_video_url', 'demo_video_type', 'demo_video_poster', 'demo_video_captions', 'demo_video_title',
+  'features', 'in_the_box', 'usage_instructions', 'care_instructions', 'ingredients', 'wearable_slot', 'color_hex_map', 'tryon_type',
+  'color_options', 'size_options', 'specifications', 'warranty', 'weight_kg',
+] as const;
+
+store3dRouter.put('/admin/products/:id/experience', requireAdmin, (req, res) => {
+  const b = req.body || {};
+  const tx = db.transaction(() => {
+    const sets: string[] = [];
+    const vals: any[] = [];
+    experienceFields.forEach((f) => {
+      if (b[f] !== undefined) {
+        sets.push(`${f} = ?`);
+        let v = b[f];
+        if ((f === 'dimensions_json' || f === 'color_hex_map' || f === 'specifications') && v && typeof v === 'object') v = JSON.stringify(v);
+        vals.push(v === '' ? null : v);
+      }
+    });
+    if (sets.length) db.prepare(`UPDATE products SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = ?`).run(...vals, req.params.id);
+
+    if (Array.isArray(b.images)) {
+      db.prepare('DELETE FROM product_images WHERE product_id = ?').run(req.params.id);
+      const ins = db.prepare('INSERT INTO product_images (id, product_id, image_url, alt_text, display_order, is_primary) VALUES (?, ?, ?, ?, ?, ?)');
+      b.images.filter((u: any) => typeof u === 'string' && u.trim()).forEach((u: string, i: number) => ins.run(`img_${req.params.id}_${Date.now()}_${i}`, req.params.id, u.trim(), null, i, i === 0 ? 1 : 0));
+    }
+    if (Array.isArray(b.variants)) {
+      db.prepare('DELETE FROM product_variants WHERE product_id = ?').run(req.params.id);
+      const ins = db.prepare('INSERT INTO product_variants (id, product_id, sku, title, color, size, price, cost_price, stock_quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      b.variants.forEach((v: any, i: number) => {
+        if (!v.title || !v.sku) return;
+        ins.run(v.id || `var_${req.params.id}_${Date.now()}_${i}`, req.params.id, v.sku, v.title, v.color || null, v.size || null, Number(v.price || 0), Number(v.cost_price || 0), Number(v.stock_quantity || 0));
+      });
+    }
+  });
+  try {
+    tx();
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+store3dRouter.delete('/admin/sample-products', requireAdmin, (_req, res) => {
+  const ids = (db.prepare('SELECT id FROM products WHERE is_sample = 1').all() as any[]).map((r) => r.id);
+  const ordered = ids.filter((id) => db.prepare('SELECT 1 FROM order_items WHERE product_id = ? LIMIT 1').get(id));
+  const tx = db.transaction(() => {
+    ids.forEach((id) => {
+      db.prepare('UPDATE store_shelves SET product_id = NULL WHERE product_id = ?').run(id);
+      db.prepare('UPDATE store_promo_screens SET product_id = NULL WHERE product_id = ?').run(id);
+      if (ordered.includes(id)) db.prepare('UPDATE products SET is_published = 0 WHERE id = ?').run(id);
+      else db.prepare('DELETE FROM products WHERE id = ?').run(id);
+    });
+  });
+  tx();
+  res.json({ success: true, removed: ids.length - ordered.length, unpublished: ordered.length });
+});
+
+// ---------------- Admin: media uploads ----------------
+const UPLOAD_RULES: Record<string, { exts: string[]; max: number; check: (b: Buffer) => boolean }> = {
+  video: {
+    exts: ['mp4', 'webm', 'm4v'], max: 250 * 1024 * 1024,
+    check: (b) => b.slice(4, 8).toString('latin1') === 'ftyp' || b.readUInt32BE(0) === 0x1a45dfa3,
+  },
+  image: {
+    exts: ['jpg', 'jpeg', 'png', 'webp'], max: 10 * 1024 * 1024,
+    check: (b) => (b[0] === 0xff && b[1] === 0xd8) || b.slice(1, 4).toString('latin1') === 'PNG' || b.slice(8, 12).toString('latin1') === 'WEBP',
+  },
+  model: { exts: ['glb'], max: 60 * 1024 * 1024, check: (b) => b.slice(0, 4).toString('latin1') === 'glTF' },
+  captions: { exts: ['vtt'], max: 1024 * 1024, check: (b) => b.slice(0, 6).toString('utf8').replace(/^﻿/, '').startsWith('WEBVTT') },
+};
+
+store3dRouter.post(
+  '/admin/uploads',
+  requireAdmin,
+  express.raw({ type: () => true, limit: '260mb' }),
+  (req: Request, res: Response) => {
+    const kind = String(req.query.kind || '');
+    const original = String(req.query.filename || '');
+    const rule = UPLOAD_RULES[kind];
+    if (!rule) return res.status(400).json({ error: 'Unknown upload type.' });
+    const ext = original.split('.').pop()?.toLowerCase() || '';
+    if (!rule.exts.includes(ext)) return res.status(400).json({ error: `Allowed file types: ${rule.exts.join(', ')}` });
+    const body = req.body as Buffer;
+    if (!Buffer.isBuffer(body) || body.length < 12) return res.status(400).json({ error: 'Empty upload.' });
+    if (body.length > rule.max) return res.status(413).json({ error: 'File too large.' });
+    if (!rule.check(body)) return res.status(400).json({ error: 'File contents do not match the declared type.' });
+    const name = `${Date.now()}_${crypto.randomBytes(5).toString('hex')}.${ext}`;
+    const types: Record<string, string> = { mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', glb: 'model/gltf-binary', vtt: 'text/vtt' };
+    if (r2Enabled()) {
+      // Cloudflare R2 (persistent, served from your R2 public URL / custom domain)
+      putToR2(`${kind}/${name}`, body, types[ext] || 'application/octet-stream')
+        .then((url) => res.json({ success: true, url, bytes: body.length, storage: 'r2' }))
+        .catch((e) => res.status(502).json({ error: `Cloudflare R2 upload failed: ${e.message}` }));
+      return;
+    }
+    const dir = path.join(UPLOAD_ROOT, kind);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, name), body);
+    // absolute URL so the separately hosted frontend can load it
+    const base = (process.env.PUBLIC_API_URL || '').replace(/\/$/, '');
+    res.json({ success: true, url: `${base}/uploads/${kind}/${name}`, bytes: body.length, storage: 'disk' });
+  },
+);
+
+export function serveUploads(app: express.Express) {
+  fs.mkdirSync(UPLOAD_ROOT, { recursive: true });
+  app.use(
+    '/uploads',
+    express.static(UPLOAD_ROOT, {
+      fallthrough: false,
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.glb')) res.setHeader('Content-Type', 'model/gltf-binary');
+        if (filePath.endsWith('.vtt')) res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+      },
+    }),
+  );
+}

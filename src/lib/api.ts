@@ -1,0 +1,46 @@
+/**
+ * API client glue for split hosting (frontend on Vercel, API on Railway).
+ *
+ * Every request to `/api/...` or `/uploads/...` is sent to VITE_API_URL (the Railway URL) and carries the
+ * signed-in user's token. Tokens returned by login/registration are stored automatically, so existing
+ * components keep using plain `fetch('/api/...')`.
+ */
+export const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) || '').replace(/\/$/, '');
+const TOKEN_KEY = 'shopwalk360_token';
+
+export const getToken = () => {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+};
+export const setToken = (t: string | null) => {
+  try {
+    if (t) localStorage.setItem(TOKEN_KEY, t);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* storage blocked */
+  }
+};
+
+/** Resolve a stored media URL (absolute R2/Railway URLs pass through; legacy `/uploads/...` gets the API host) */
+export const mediaUrl = (u?: string | null) => (u && u.startsWith('/uploads/') ? `${API_BASE}${u}` : u || '');
+
+const nativeFetch = window.fetch.bind(window);
+
+window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  const isApi = url.startsWith('/api/') || url.startsWith('/uploads/');
+  if (!isApi) return nativeFetch(input, init);
+  const headers = new Headers(init.headers || (typeof input !== 'string' && !(input instanceof URL) ? input.headers : undefined));
+  const token = getToken();
+  if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
+  const res = await nativeFetch(`${API_BASE}${url}`, { ...init, headers });
+  if (/^\/api\/auth\/(login|register)$/.test(url) && res.ok) {
+    res.clone().json().then((d) => d?.token && setToken(d.token)).catch(() => {});
+  }
+  if (url === '/api/auth/logout') setToken(null);
+  if (res.status === 401 && url === '/api/auth/me') setToken(null);
+  return res;
+};
