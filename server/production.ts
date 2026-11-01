@@ -3,7 +3,7 @@
  * store branding, and optional Cloudflare R2 storage for uploaded media.
  */
 import { db, hashPassword } from './db.js';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutBucketCorsCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 
 function setting(key: string, value: string) {
   db.prepare('INSERT INTO website_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
@@ -101,4 +101,35 @@ export async function putToR2(key: string, body: Buffer, contentType: string) {
   }
   await r2.send(new PutObjectCommand({ Bucket: process.env.R2_BUCKET!, Key: key, Body: body, ContentType: contentType, CacheControl: 'public, max-age=31536000, immutable' }));
   return `${process.env.R2_PUBLIC_URL!.replace(/\/$/, '')}/${key}`;
+}
+
+/** Let the website use R2 videos as textures on the 3D screens. */
+export async function ensureR2Cors() {
+  if (!r2Enabled()) {
+    if (process.env.NODE_ENV === 'production') console.warn('Cloudflare R2 is not configured. Screen videos will not be kept in Cloudflare until R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET and R2_PUBLIC_URL are set.');
+    return;
+  }
+  try {
+    if (!r2) {
+      r2 = new S3Client({
+        region: 'auto',
+        endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+        credentials: { accessKeyId: process.env.R2_ACCESS_KEY_ID!, secretAccessKey: process.env.R2_SECRET_ACCESS_KEY! },
+      });
+    }
+    await r2.send(new PutBucketCorsCommand({
+      Bucket: process.env.R2_BUCKET!,
+      CORSConfiguration: {
+        CORSRules: [{
+          AllowedOrigins: ['*'],
+          AllowedMethods: ['GET', 'HEAD'],
+          AllowedHeaders: ['*'],
+          ExposeHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges', 'ETag'],
+          MaxAgeSeconds: 86400,
+        }],
+      },
+    }));
+  } catch (err: any) {
+    console.warn('Could not set Cloudflare R2 CORS. Screen videos need the bucket to allow GET from the website.', err?.message || err);
+  }
 }

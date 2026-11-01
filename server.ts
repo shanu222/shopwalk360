@@ -9,7 +9,7 @@ import { apiRouter, getActiveUserId } from './server/routes.js';
 import { attachPresence } from './server/presence.js';
 import { store3dRouter, migrateStoreExperienceV2, bindSession, serveUploads, seedMusicLibrary, serveMusicLibrary } from './server/store3dV2.js';
 import { authMiddleware } from './server/auth.js';
-import { bootstrapAdmin, ensureStoreContact, removeDemoData } from './server/production.js';
+import { bootstrapAdmin, ensureR2Cors, ensureStoreContact, removeDemoData } from './server/production.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -20,6 +20,7 @@ async function startServer() {
   ensureStoreContact();
   seedMusicLibrary();
   bootstrapAdmin();
+  await ensureR2Cors();
   bindSession(getActiveUserId);
 
   const app = express();
@@ -38,7 +39,8 @@ async function startServer() {
   app.use(
     cors({
       origin: (origin, cb) => cb(null, originAllowed(origin)),
-      allowedHeaders: ['Content-Type', 'Authorization'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'Range'],
+      exposedHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges'],
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       maxAge: 86400,
     }),

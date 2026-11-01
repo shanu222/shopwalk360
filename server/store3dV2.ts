@@ -851,6 +851,9 @@ store3dRouter.post(
     if (!Buffer.isBuffer(body) || body.length < 12) return res.status(400).json({ error: 'Empty upload.' });
     if (body.length > rule.max) return res.status(413).json({ error: 'File too large.' });
     if (!rule.check(body)) return res.status(400).json({ error: 'File contents do not match the declared type.' });
+    if (kind === 'video' && process.env.NODE_ENV === 'production' && !r2Enabled()) {
+      return res.status(503).json({ error: 'Cloudflare storage is not configured, so this video was not saved. Add the R2 settings on the server, then upload the video again.' });
+    }
     const name = `${Date.now()}_${crypto.randomBytes(5).toString('hex')}.${ext}`;
     const types: Record<string, string> = { mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', glb: 'model/gltf-binary', vtt: 'text/vtt', mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', ogg: 'audio/ogg', oga: 'audio/ogg', wav: 'audio/wav' };
     if (r2Enabled()) {
@@ -878,6 +881,11 @@ export function serveUploads(app: express.Express) {
       setHeaders: (res, filePath) => {
         if (filePath.endsWith('.glb')) res.setHeader('Content-Type', 'model/gltf-binary');
         if (filePath.endsWith('.vtt')) res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
+        if (filePath.endsWith('.mp4') || filePath.endsWith('.m4v')) res.setHeader('Content-Type', 'video/mp4');
+        if (filePath.endsWith('.webm')) res.setHeader('Content-Type', 'video/webm');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        res.setHeader('Accept-Ranges', 'bytes');
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.setHeader('Cache-Control', 'public, max-age=86400');
       },

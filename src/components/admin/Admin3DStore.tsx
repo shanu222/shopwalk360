@@ -293,7 +293,7 @@ function DepartmentsTab({ departments, categories, call, reload, flash }: { depa
                 <input className={input} value={edit.info_video_url || ''} onChange={(e) => setEdit({ ...edit, info_video_url: e.target.value })} placeholder="MP4 or WebM URL, or upload" />
                 <UploadButton kind="video" accept="video/mp4,video/webm" text="Upload" onUploaded={(url) => setEdit({ ...edit, info_video_url: url })} />
               </div>
-              <p className="mt-1 text-[11px] text-slate-500">Optional. When set, this video plays on the department screen. Otherwise the message above scrolls on the LED.</p>
+              <p className="mt-1 text-[11px] text-slate-500">MP4 or WebM. The file is saved on Cloudflare and plays full-screen on this department’s LED. Leave it empty to keep the scrolling message.</p>
             </div>
             <label className="flex items-center gap-2 text-xs font-semibold"><input type="checkbox" checked={edit.is_active !== 0} onChange={(e) => setEdit({ ...edit, is_active: e.target.checked ? 1 : 0 })} /> Open to shoppers</label>
           </div>
@@ -795,7 +795,7 @@ function PromosTab({ promos, leds, departments, products, call, reload, flash }:
                 <input className={input} value={edit.video_url || ''} onChange={(e) => setEdit({ ...edit, video_url: e.target.value })} placeholder="Optional MP4 or WebM" />
                 <UploadButton kind="video" accept="video/mp4,video/webm" text="Upload" onUploaded={(url) => setEdit({ ...edit, video_url: url })} />
               </div>
-              <p className="mt-1 text-[11px] text-slate-500">Leave empty to scroll the title and subtitle on the LED.</p>
+              <p className="mt-1 text-[11px] text-slate-500">MP4 or WebM, saved on Cloudflare. It plays on the totem. Leave empty to scroll the title and subtitle.</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div><label className={label}>Accent colour</label><input type="color" className="h-9 w-full rounded-xl border border-slate-300" value={edit.accent_color || '#c8a96a'} onChange={(e) => setEdit({ ...edit, accent_color: e.target.value })} /></div>
@@ -813,9 +813,10 @@ function PromosTab({ promos, leds, departments, products, call, reload, flash }:
             <div>
               <label className={label}>Video</label>
               <div className="flex flex-wrap items-center gap-2">
-                <input className={input} value={led.video_url || ''} onChange={(e) => setLed({ ...led, video_url: e.target.value })} placeholder="Optional MP4 or WebM" />
+                <input className={input} value={led.video_url || ''} onChange={(e) => setLed({ ...led, video_url: e.target.value })} placeholder="MP4 or WebM on Cloudflare" />
                 <UploadButton kind="video" accept="video/mp4,video/webm" text="Upload" onUploaded={(url) => setLed({ ...led, video_url: url })} />
               </div>
+              <p className="mt-1 text-[11px] text-slate-500">The upload is stored on Cloudflare and loops on this screen. A YouTube link will not play on the 3D screen.</p>
               {led.video_url && <button type="button" onClick={() => setLed({ ...led, video_url: '' })} className="mt-2 text-xs font-semibold text-rose-600">Remove video</button>}
             </div>
           </div>

@@ -107,7 +107,8 @@ export class StoreEngine {
   private doorOpen = 0;
   private doorWasOpen = false;
   private lastStep = 0;
-  private videos = new Map<string, { video: HTMLVideoElement; texture: THREE.VideoTexture }>();
+  private videos = new Map<string, { video: HTMLVideoElement; texture: THREE.VideoTexture; ledMap: THREE.Texture | null; shown: boolean }>();
+  private videoGaveUp = new Set<string>();
   private fpsSamples: number[] = [];
   private lastQualityCheck = 0;
   private raycaster = new THREE.Raycaster();
@@ -1103,24 +1104,52 @@ export class StoreEngine {
     for (const s of this.store.videoScreens) {
       const d = Math.hypot(s.center.x - this.pos.x, s.center.z - this.pos.z);
       const id = s.id;
+      const near = d < 42;
       let v = this.videos.get(id);
-      if (d < 14 && !this.paused) {
+      if (near && !this.paused && !this.videoGaveUp.has(id)) {
         if (!v) {
+          const mat = s.mesh.material as THREE.MeshBasicMaterial;
           const video = document.createElement('video');
-          video.src = mediaUrl(s.videoUrl);
+          video.crossOrigin = 'anonymous';
           video.muted = true;
+          video.defaultMuted = true;
           video.loop = true;
           video.playsInline = true;
-          video.crossOrigin = 'anonymous';
+          video.autoplay = true;
           video.preload = 'auto';
+          video.setAttribute('muted', '');
+          video.setAttribute('playsinline', '');
+          video.setAttribute('webkit-playsinline', '');
           const texture = new THREE.VideoTexture(video);
           texture.colorSpace = THREE.SRGBColorSpace;
-          const m = s.mesh.material as THREE.MeshBasicMaterial;
-          m.map = texture;
-          m.color.set('#ffffff');
-          m.needsUpdate = true;
-          v = { video, texture };
+          texture.minFilter = THREE.LinearFilter;
+          texture.magFilter = THREE.LinearFilter;
+          texture.generateMipmaps = false;
+          v = { video, texture, ledMap: mat.map, shown: false };
           this.videos.set(id, v);
+          video.addEventListener('loadeddata', () => {
+            const cur = this.videos.get(id);
+            if (!cur) return;
+            fitVideoCover(cur.texture, video, s.mesh);
+            const m = s.mesh.material as THREE.MeshBasicMaterial;
+            m.map = cur.texture;
+            m.color.set('#ffffff');
+            m.needsUpdate = true;
+            cur.shown = true;
+          });
+          video.addEventListener('error', () => {
+            const cur = this.videos.get(id);
+            if (cur?.shown) {
+              const m = s.mesh.material as THREE.MeshBasicMaterial;
+              m.map = cur.ledMap;
+              m.needsUpdate = true;
+            }
+            cur?.texture.dispose();
+            this.videos.delete(id);
+            this.videoGaveUp.add(id);
+          });
+          video.src = mediaUrl(s.videoUrl);
+          video.load();
         }
         if (v.video.paused) v.video.play().catch(() => {});
       } else if (v && !v.video.paused) v.video.pause();
@@ -1272,6 +1301,25 @@ export class StoreEngine {
     this.clearRoute();
     this.renderer.dispose();
     this.renderer.domElement.remove();
+  }
+}
+
+function fitVideoCover(texture: THREE.VideoTexture, video: HTMLVideoElement, mesh: THREE.Mesh) {
+  const geo = mesh.geometry as THREE.PlaneGeometry;
+  const pw = geo.parameters?.width || 16;
+  const ph = geo.parameters?.height || 9;
+  const vw = video.videoWidth || 16;
+  const vh = video.videoHeight || 9;
+  const imageAspect = vw / Math.max(1, vh);
+  const planeAspect = pw / Math.max(0.001, ph);
+  if (imageAspect > planeAspect) {
+    const repeat = planeAspect / imageAspect;
+    texture.repeat.set(repeat, 1);
+    texture.offset.set((1 - repeat) / 2, 0);
+  } else {
+    const repeat = imageAspect / planeAspect;
+    texture.repeat.set(1, repeat);
+    texture.offset.set(0, (1 - repeat) / 2);
   }
 }
 
