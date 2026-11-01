@@ -80,10 +80,11 @@ export class PresenceClient {
   setLook(cfg: AvatarConfig | null) {
     if (!cfg) return;
     // never send photos, generated model links or names
-    const { glbUrl, photoUrl, portrait, customPhotoUrl, avatarName, ...rest } = cfg as any;
+    const { glbUrl, photoUrl, portrait, faceShape, customPhotoUrl, avatarName, ...rest } = cfg as any;
     void glbUrl;
     void photoUrl;
     void portrait;
+    void faceShape;
     void customPhotoUrl;
     void avatarName;
     this.look = rest;

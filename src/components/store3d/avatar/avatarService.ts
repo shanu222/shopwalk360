@@ -4,9 +4,9 @@
  * Privacy model
  *  - The original photograph stays in browser memory only while the customer is in the Avatar Studio.
  *    It is never written to localStorage or the database, and is released when they finish or remove it.
- *  - A small cropped face (portrait) is kept on the avatar so the head shows that person. It can be
- *    remembered on this device. The account stores colours and clothing only — the server rejects images.
- *  - Colour matching runs in the browser. No face recognition or identity check is performed.
+ *  - A 3D head is fitted to the face on this device. The head crop and mesh can be remembered
+ *    on this device. The account stores colours and clothing only — the server rejects images.
+ *  - No identity check is performed. The photo is used only to shape and skin the avatar head.
  *  - If an external photo-to-avatar service is connected, the photo is forwarded once, in memory,
  *    only after a separate explicit consent, and is not stored by this server.
  */
@@ -59,6 +59,7 @@ function forDevice(cfg: AvatarConfig): AvatarConfig {
 function forAccount(cfg: AvatarConfig): AvatarConfig {
   const c = forDevice(cfg);
   delete c.portrait;
+  delete c.faceShape;
   return c;
 }
 

@@ -5,7 +5,8 @@ import {
 import { AvatarConfig, HairStyle } from '../../../types';
 import { AvatarPreview, AvatarPreviewHandle, PreviewAngle } from './AvatarPreview';
 import { READY_MADE_AVATARS, normaliseAvatarConfig } from './AvatarModel';
-import { cropPortrait, estimateAppearance, FaceOval, requestProviderAvatar, saveAvatar } from './avatarService';
+import { estimateAppearance, FaceOval, requestProviderAvatar, saveAvatar } from './avatarService';
+import { buildPhotoFace, preloadPhotoFace } from './photoFace';
 
 type Step = 'start' | 'photo' | 'presets' | 'generating' | 'preview' | 'customize';
 
@@ -108,6 +109,10 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  useEffect(() => {
+    if (open && (step === 'photo' || step === 'start')) preloadPhotoFace();
+  }, [open, step]);
+
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
@@ -197,15 +202,21 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
       setGenStatus([...log]);
     };
     try {
-      push('Reading your photo on this device…');
+      push('Fitting a 3D head to the face in your photo…');
       const est = await estimateAppearance(photoUrl, oval);
-      const portrait = await cropPortrait(photoUrl, oval);
+      const face = await buildPhotoFace(photoUrl);
+      if (!face) {
+        push('No face was found. Use a clear, front-facing photo and try again.');
+        setStep('photo');
+        return;
+      }
       let next: AvatarConfig = {
         ...cfg,
         skinTone: est.skinTone,
         hairColor: cfg.hairStyle === 'headscarf' ? cfg.hairColor : est.hairColor,
         outfitColor: est.topColor || cfg.outfitColor,
-        portrait,
+        portrait: face.portrait,
+        faceShape: face.faceShape,
         source: 'photo-estimate',
         glbUrl: undefined,
       };
@@ -221,19 +232,19 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
           push(`3D avatar service error: ${e.message}. Using the customisable avatar instead.`);
         }
       }
-      push('Placing your face on the avatar…');
+      push('Building your head…');
       setCfg(next);
       setEstimateNote(
         est.confidence === 'good'
-          ? 'Your face from the photo is on the avatar. Skin, hair and clothing colours were matched as well. Change anything you like.'
-          : 'Your face is on the avatar. The lighting made colour matching harder, so check skin, hair and clothing.',
+          ? 'This head is shaped from your photo. The body stays the fitting model so clothes can be tried on.'
+          : 'This head is shaped from your photo. Check skin and clothing colours, then adjust anything you like.',
       );
       clearPhoto();
-      push('The original photo was removed. Your face stays on the avatar.');
+      push('The original photo was removed. The 3D head stays on your avatar.');
       await new Promise((r) => setTimeout(r, 450));
       setStep('preview');
-    } catch {
-      push('We could not read that photo. Please try another one.');
+    } catch (e: any) {
+      push(e?.message || 'We could not read that photo. Please try another one.');
       setStep('photo');
     }
   };
@@ -310,7 +321,7 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
                   <div className="rounded-xl bg-[#c8a96a]/15 p-3 text-[#c8a96a]"><Camera className="h-6 w-6" /></div>
                   <div className="flex-1">
                     <div className="font-semibold">Start from my photo</div>
-                    <div className="mt-1 text-xs leading-relaxed text-white/60">Upload or take a clear, front-facing photo. Your face is placed on the avatar, and skin, hair and clothing colours are matched on this device.</div>
+                    <div className="mt-1 text-xs leading-relaxed text-white/60">Upload a clear, front-facing photo. A 3D head is fitted to that face on this device. The body stays a fitting model so clothes can be tried on.</div>
                   </div>
                   <ArrowRight className="mt-1 h-5 w-5 text-white/40 transition group-hover:translate-x-1 group-hover:text-[#c8a96a]" />
                 </button>
@@ -325,7 +336,7 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
                 <div className="flex gap-3 rounded-2xl bg-white/[0.03] p-4 text-xs leading-relaxed text-white/60">
                   <ShieldCheck className="h-5 w-5 shrink-0 text-emerald-400" />
                   <div>
-                    <span className="font-semibold text-white/80">How your photo is handled.</span> The original stays in this browser while you are in the studio, then it is removed. A cropped face stays on the avatar so you can walk the store. We do not run facial recognition. Your account saves colours and clothing only. “Remember on this device” also keeps the face.
+                    <span className="font-semibold text-white/80">How your photo is handled.</span> The original stays in this browser while you are in the studio, then it is removed. A 3D head from that face can be remembered on this device. We do not identify you. Your account saves colours and clothing only.
                   </div>
                 </div>
               </div>
@@ -343,7 +354,7 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
 
                 <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-xs leading-relaxed text-white/75">
                   <input type="checkbox" checked={consentPhoto} onChange={(e) => setConsentPhoto(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#c8a96a]" />
-                  <span>I agree that my photo is processed <b>on this device</b> to place my face on the avatar and match skin, hair and clothing colours. The original photo is removed when I finish. A cropped face can be remembered on this device if I choose to save it.</span>
+                  <span>I agree that my photo is processed <b>on this device</b> to build a 3D head and match skin, hair and clothing colours. The original photo is removed when I finish. The 3D head can be remembered on this device if I choose to save it.</span>
                 </label>
 
                 {providerAvailable && (
@@ -475,9 +486,9 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
                   {saveError && <div className="text-rose-300">{saveError}</div>}
                 </div>
                 <p className="text-[11px] leading-relaxed text-white/45">
-                  {cfg.portrait
-                    ? 'The face is your photo. Body, clothes and accessories stay editable so try-on still works.'
-                    : 'Ready-made avatars use a styled figure. Start from a photo if you want your own face on the avatar.'}
+                  {cfg.faceShape
+                    ? 'The head is a 3D model of the face in your photo. Clothes, height and accessories still change for try-on.'
+                    : 'Ready-made avatars use a styled figure. Start from a photo to build a 3D head from your face.'}
                 </p>
               </div>
             )}
@@ -490,12 +501,12 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
                   <div className="flex items-center gap-3 rounded-2xl border border-[#c8a96a]/35 bg-[#c8a96a]/10 p-3">
                     <img src={cfg.portrait} alt="" className="h-16 w-14 rounded-xl object-cover ring-1 ring-[#c8a96a]/50" />
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm font-semibold">Face from your photo</div>
-                      <div className="mt-0.5 text-xs leading-relaxed text-white/65">Clothing, height and colours still apply. Hair shows around the photo from the side.</div>
+                      <div className="text-sm font-semibold">3D head from your photo</div>
+                      <div className="mt-0.5 text-xs leading-relaxed text-white/65">Clothing, height and colours still apply. The body stays the fitting model.</div>
                     </div>
                     <div className="flex shrink-0 flex-col gap-1.5">
                       <button type="button" onClick={() => setStep('photo')} className="rounded-full bg-white/10 px-3 py-1.5 text-[11px] font-semibold hover:bg-white/15">New photo</button>
-                      <button type="button" onClick={() => setCfg((c) => { const n = { ...c }; delete n.portrait; return n; })} className="rounded-full px-3 py-1.5 text-[11px] font-semibold text-rose-200 hover:bg-white/10">Remove</button>
+                      <button type="button" onClick={() => setCfg((c) => { const n = { ...c }; delete n.portrait; delete n.faceShape; return n; })} className="rounded-full px-3 py-1.5 text-[11px] font-semibold text-rose-200 hover:bg-white/10">Remove</button>
                     </div>
                   </div>
                 )}
