@@ -26,7 +26,6 @@ interface Shopper {
 
 const MAX_SHOPPERS = 300;
 const TICK_MS = 200;
-const STALE_MS = 15000;
 
 // avatar fields that are safe to share (no photo, no generated model URL, no name)
 const LOOK_KEYS = [
@@ -76,6 +75,8 @@ export function attachPresence(server: Server, isOriginAllowed: (origin: string 
 
   wss.on('connection', (ws) => {
     const id = crypto.randomBytes(6).toString('hex');
+    (ws as any).alive = true;
+    ws.on('pong', () => ((ws as any).alive = true));
     const me: Shopper = { id, ws, look: null, x: 0, z: 0, yaw: 0, speed: 0, inside: false, updated: Date.now(), lastMsg: Date.now(), msgCount: 0 };
     shoppers.set(id, me);
     ws.send(JSON.stringify({ t: 'hello', id }));
@@ -114,10 +115,8 @@ export function attachPresence(server: Server, isOriginAllowed: (origin: string 
 
   // broadcast: every client receives everyone else who is inside the store and has a look
   setInterval(() => {
-    const now = Date.now();
     const visible: Shopper[] = [];
     for (const s of shoppers.values()) {
-      if (now - s.updated > STALE_MS && s.ws.readyState === WebSocket.OPEN) s.inside = false;
       if (s.inside && s.look) visible.push(s);
     }
     for (const s of shoppers.values()) {
@@ -130,10 +129,22 @@ export function attachPresence(server: Server, isOriginAllowed: (origin: string 
   }, TICK_MS).unref();
 
   // keep connections alive through proxies; drop dead ones
+  // a shopper stays visible while their page is open (even standing still or in a background tab);
+  // connections that stop answering pings are dropped
   setInterval(() => {
     for (const s of shoppers.values()) {
-      if (s.ws.readyState === WebSocket.OPEN) s.ws.ping();
-      else shoppers.delete(s.id);
+      const ws = s.ws as any;
+      if (s.ws.readyState !== WebSocket.OPEN || ws.alive === false) {
+        try {
+          s.ws.terminate();
+        } catch {
+          /* already closed */
+        }
+        shoppers.delete(s.id);
+        continue;
+      }
+      ws.alive = false;
+      s.ws.ping();
     }
-  }, 25000).unref();
+  }, 20000).unref();
 }

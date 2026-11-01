@@ -28,6 +28,7 @@ interface Props {
   player: { x: number; z: number; yaw: number } | null;
   others: { id: string; x: number; z: number }[];
   othersCount: number;
+  liveConnected: boolean;
   showOthers: boolean;
   onToggleOthers: () => void;
   route: { x: number; z: number }[] | null;
@@ -442,6 +443,14 @@ export const StoreHUD: React.FC<Props> = (p) => {
                   <span className="flex items-center gap-2"><Users className="h-4 w-4" /> Show other shoppers</span>
                   <span className="text-xs text-white/60">{p.showOthers ? 'On' : 'Off'}</span>
                 </button>
+                <p className="-mt-3 flex items-center gap-1.5 px-1 text-[11px] text-white/50">
+                  <span className={`h-2 w-2 rounded-full ${p.liveConnected ? 'bg-emerald-400' : 'bg-white/30'}`} />
+                  {p.liveConnected
+                    ? p.othersCount > 0
+                      ? `${p.othersCount} other ${p.othersCount === 1 ? 'shopper is' : 'shoppers are'} in the store right now`
+                      : 'Connected — no other shoppers are in the store right now'
+                    : 'Connecting to live shoppers…'}
+                </p>
                 <button onClick={p.onMute} className="flex w-full items-center justify-between rounded-xl bg-white/[0.05] px-4 py-3">
                   <span className="flex items-center gap-2">{p.muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />} Store sounds</span>
                   <span className="text-xs text-white/60">{p.muted ? 'Off' : 'On'}</span>

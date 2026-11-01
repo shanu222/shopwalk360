@@ -64,6 +64,7 @@ export default function ShopWalkExperience(props: Props) {
   // other real shoppers (live presence)
   const presence = useRef<PresenceClient | null>(null);
   const [others, setOthers] = useState<RemoteShopper[]>([]);
+  const [liveConnected, setLiveConnected] = useState(false);
   const [showOthers, setShowOthers] = useState(() => {
     try {
       return localStorage.getItem('shopwalk360_show_others') !== 'off';
@@ -163,13 +164,13 @@ export default function ShopWalkExperience(props: Props) {
       engine.current?.setRemoteShoppers(list);
     });
     presence.current = client;
+    client.onStatus = setLiveConnected;
     client.setLook(effectiveAvatar);
-    const onHide = () => {
-      if (document.visibilityState === 'hidden') client.leave();
-    };
-    document.addEventListener('visibilitychange', onHide);
+    // leaving the page (closing the tab or navigating away) removes the shopper straight away
+    const onUnload = () => client.close();
+    window.addEventListener('pagehide', onUnload);
     return () => {
-      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', onUnload);
       client.close();
       presence.current = null;
     };
@@ -357,6 +358,7 @@ export default function ShopWalkExperience(props: Props) {
           player={player}
           others={showOthers ? others : []}
           othersCount={others.length}
+          liveConnected={liveConnected}
           showOthers={showOthers}
           onToggleOthers={() => setShowOthers((v) => !v)}
           route={route}
