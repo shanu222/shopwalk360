@@ -6,7 +6,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { initDatabase } from './server/db.js';
 import { apiRouter, getActiveUserId } from './server/routes.js';
-import { store3dRouter, migrateStoreExperienceV2, bindSession, serveUploads } from './server/store3dV2.js';
+import { store3dRouter, migrateStoreExperienceV2, bindSession, serveUploads, seedMusicLibrary, serveMusicLibrary } from './server/store3dV2.js';
 import { authMiddleware } from './server/auth.js';
 import { bootstrapAdmin, removeDemoData } from './server/production.js';
 
@@ -16,6 +16,7 @@ async function startServer() {
   initDatabase();
   migrateStoreExperienceV2();
   removeDemoData();
+  seedMusicLibrary();
   bootstrapAdmin();
   bindSession(getActiveUserId);
 
@@ -41,6 +42,7 @@ async function startServer() {
   app.use(express.json({ limit: '2mb' }));
 
   serveUploads(app);
+  serveMusicLibrary(app);
   app.use('/api', store3dRouter);
   app.use('/api', apiRouter);
   app.get('/health', (_req, res) => res.json({ ok: true }));

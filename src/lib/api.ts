@@ -25,7 +25,7 @@ export const setToken = (t: string | null) => {
 };
 
 /** Resolve a stored media URL (absolute R2/Railway URLs pass through; legacy `/uploads/...` gets the API host) */
-export const mediaUrl = (u?: string | null) => (u && u.startsWith('/uploads/') ? `${API_BASE}${u}` : u || '');
+export const mediaUrl = (u?: string | null) => (u && (u.startsWith('/uploads/') || u.startsWith('/music-library/')) ? `${API_BASE}${u}` : u || '');
 
 const nativeFetch = window.fetch.bind(window);
 

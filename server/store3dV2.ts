@@ -726,6 +726,42 @@ store3dRouter.delete('/admin/music/:id', requireAdmin, (req: Request, res: Respo
   res.json({ success: true });
 });
 
+// Built-in music library (original tracks shipped with the backend), added to the playlist once.
+const MUSIC_LIBRARY_DIR = path.join(process.cwd(), 'server', 'music-library');
+const LIBRARY_TRACKS = [
+  { file: 'golden-hour.mp3', title: 'Golden Hour' },
+  { file: 'morning-atrium.mp3', title: 'Morning Atrium' },
+  { file: 'gallery-walk.mp3', title: 'Gallery Walk' },
+  { file: 'velvet-evening.mp3', title: 'Velvet Evening' },
+];
+
+export function seedMusicLibrary() {
+  if (getSetting('music_library_seeded') === '1') return;
+  const base = (process.env.PUBLIC_API_URL || '').replace(/\/$/, '');
+  const max = db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM store_music').get() as { m: number };
+  const ins = db.prepare('INSERT INTO store_music (id, title, artist, url, sort_order) VALUES (?, ?, ?, ?, ?)');
+  let order = max.m;
+  LIBRARY_TRACKS.forEach((t) => {
+    if (!fs.existsSync(path.join(MUSIC_LIBRARY_DIR, t.file))) return;
+    ins.run(`mus_lib_${t.file.replace(/\W+/g, '_')}`, t.title, 'ShopWalk 360 Studio', `${base}/music-library/${t.file}`, ++order);
+  });
+  setSetting('music_library_seeded', '1');
+}
+
+export function serveMusicLibrary(app: express.Express) {
+  app.use(
+    '/music-library',
+    express.static(MUSIC_LIBRARY_DIR, {
+      fallthrough: false,
+      index: false,
+      setHeaders: (res, filePath) => {
+        res.setHeader('Cache-Control', 'public, max-age=604800');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+      },
+    }),
+  );
+}
+
 // ---------------- Admin: media uploads ----------------
 const UPLOAD_RULES: Record<string, { exts: string[]; max: number; check: (b: Buffer) => boolean }> = {
   video: {
