@@ -100,10 +100,14 @@ export const StoreEntrance: React.FC<Props> = ({ onChoose }) => (
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_40%,rgba(0,0,0,0.75))]" />
     </div>
 
-    <div className="relative mx-auto flex min-h-[100dvh] max-w-5xl flex-col items-center justify-center gap-6 px-4 py-8 sm:gap-12">
-      <h1 className="sw-title select-none text-center text-[44px] font-black leading-none tracking-tight sm:text-7xl md:text-8xl">
-        ShopWalk <span className="sw-title-gold">360</span>
-      </h1>
+    <div className="relative mx-auto flex min-h-[100dvh] max-w-5xl flex-col items-center justify-center gap-6 px-4 py-8 sm:gap-9">
+      <h1 className="sr-only">ShopWalk 360</h1>
+      <div className="sw-emblem relative h-[150px] w-[150px] select-none sm:h-[200px] sm:w-[200px] md:h-[220px] md:w-[220px]" aria-hidden>
+        <span className="sw-emblem-halo absolute -inset-6 rounded-full" />
+        <span className="absolute -inset-2 rounded-full bg-[#c8a96a]/25 blur-2xl" />
+        <img src="/brand/logo-512.webp" alt="" width={512} height={512} className="sw-emblem-logo relative h-full w-full drop-shadow-[0_18px_40px_rgba(0,0,0,0.7)]" />
+        <span className="sw-emblem-shine pointer-events-none absolute inset-0 overflow-hidden rounded-full" />
+      </div>
 
       <div className="grid w-full max-w-3xl grid-cols-1 gap-6 min-[520px]:grid-cols-2 sm:gap-8">
         <TiltCard onClick={() => onChoose('3d')} label="Enter the 3D store" accent="gold">

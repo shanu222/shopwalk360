@@ -72,15 +72,13 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
           {/* Brand Logo & Store identity */}
           <div className="p-5 border-b border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-black text-sm">
-                A
-              </div>
+              <img src="/brand/logo-128.webp" alt="" width={36} height={36} className="h-9 w-9 rounded-full" />
               <div>
                 <span className="font-bold text-sm text-white block leading-tight">
                   {storeName}
                 </span>
-                <span className="text-[10px] text-blue-400 font-semibold uppercase tracking-wider block">
-                  Operations Control
+                <span className="text-[10px] text-[#e2c88f] font-semibold uppercase tracking-wider block">
+                  Admin
                 </span>
               </div>
             </div>

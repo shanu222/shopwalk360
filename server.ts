@@ -26,9 +26,14 @@ async function startServer() {
   app.set('trust proxy', 1);
 
   // The storefront runs on Vercel; allow only the configured origins (comma separated)
-  const origins = (process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
+  // the store's own domains are always allowed; add others (e.g. Vercel preview URLs) in CORS_ORIGINS
+  const origins = [
+    ...(process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean),
+    'https://www.shopwalk360.com',
+    'https://shopwalk360.com',
+  ];
   const originAllowed = (origin?: string) =>
-    !origin || origins.length === 0 || origins.includes(origin) || origins.some((o) => o.startsWith('*.') && origin.endsWith(o.slice(1)));
+    !origin || !process.env.CORS_ORIGINS || origins.includes(origin) || origins.some((o) => o.startsWith('*.') && origin.endsWith(o.slice(1)));
   app.use(
     cors({
       origin: (origin, cb) => cb(null, originAllowed(origin)),

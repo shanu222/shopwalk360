@@ -57,3 +57,9 @@ The product database is SQLite (better-sqlite3) stored on the Railway volume. Cl
 
 ## 4. After first login
 Admin → Settings: fill in business address, phone, support email, About us, returns policy, shipping rates and (if you accept it) bank details — the storefront shows only what you enter. Card payments are disabled until a real payment gateway is integrated; Cash on Delivery and (if bank details exist) Bank Transfer work.
+
+## 5. Custom domain (www.shopwalk360.com)
+- Namecheap DNS: `A @ 216.198.79.1` and `CNAME www → <your-project>.vercel-dns-017.com` (as shown in Vercel → Domains).
+- The backend always accepts requests from `https://www.shopwalk360.com` and `https://shopwalk360.com`; keep any other origins (e.g. `https://shopwalk360.vercel.app`) in `CORS_ORIGINS`.
+- Cloudflare R2 → bucket → CORS: add `https://www.shopwalk360.com` and `https://shopwalk360.com` to `AllowedOrigins`.
+- Optional API subdomain: in Railway → Settings → Networking → Custom Domain add `api.shopwalk360.com`, create the CNAME Railway shows in Namecheap, then set `VITE_API_URL` (Vercel) and `PUBLIC_API_URL` (Railway) to `https://api.shopwalk360.com` and redeploy both.

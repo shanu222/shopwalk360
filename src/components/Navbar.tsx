@@ -25,8 +25,14 @@ interface NavbarProps {
 }
 
 export const BrandMark: React.FC<{ light?: boolean; size?: 'sm' | 'md' }> = ({ light, size = 'md' }) => (
-  <span className="flex items-center gap-2.5">
-    <span className={`${size === 'sm' ? 'h-8 w-8 text-[10px]' : 'h-10 w-10 text-[11px]'} flex items-center justify-center rounded-xl bg-[#c8a96a] font-black tracking-tight text-[#1a1712] shadow-sm`}>360</span>
+  <span className="group/brand flex items-center gap-2.5">
+    <img
+      src="/brand/logo-128.webp"
+      alt=""
+      width={44}
+      height={44}
+      className={`${size === 'sm' ? 'h-9 w-9' : 'h-11 w-11'} shrink-0 rounded-full drop-shadow-[0_2px_8px_rgba(200,169,106,0.45)] transition-transform duration-500 group-hover/brand:rotate-[8deg] group-hover/brand:scale-105`}
+    />
     <span className={`${size === 'sm' ? 'text-base' : 'text-lg sm:text-xl'} font-extrabold tracking-tight ${light ? 'text-white' : 'text-[#1a1712]'}`}>
       ShopWalk<span className="text-[#b08d4f]"> 360</span>
     </span>

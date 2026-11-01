@@ -140,6 +140,19 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
   const videoScreens: VideoScreen[] = [];
   const hitGroup = new THREE.Group();
   const disposables: { dispose: () => void }[] = [];
+
+  // ShopWalk 360 emblem (served with the website); shared texture, loads in the background
+  const logoTex = new THREE.TextureLoader().load('/brand/logo-512.png');
+  logoTex.colorSpace = THREE.SRGBColorSpace;
+  logoTex.anisotropy = 8;
+  const logoMat = new THREE.MeshBasicMaterial({ map: logoTex, transparent: true, alphaTest: 0.02, toneMapped: false });
+  disposables.push(logoTex, logoMat);
+  const logoDisc = (radius: number, x: number, y: number, z: number, ry: number) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(radius * 2, radius * 2), logoMat);
+    m.position.set(x, y, z);
+    m.rotation.y = ry;
+    return m;
+  };
   const roomLighting: Record<number, 'warm' | 'neutral' | 'cool'> = {};
   const deptBySlot: Record<number, StoreDepartment> = {};
   departments.forEach((d) => {
@@ -228,6 +241,8 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(13, 2.44), new THREE.MeshBasicMaterial({ map: t, transparent: true, toneMapped: false }));
     sign.position.set(0, 8.75, STORE.facadeZ + 0.32);
     root.add(sign);
+    // brand emblems on the stone piers either side of the entrance
+    [-19, 19].forEach((x) => root.add(logoDisc(2.3, x, 5.6, STORE.facadeZ + 0.33, 0)));
     const kiosk = new THREE.Mesh(
       new THREE.PlaneGeometry(0.78, 1.3),
       new THREE.MeshBasicMaterial({ map: simpleScreenTexture('Avatar Studio', ['Create your virtual self', 'Step inside — your shopping journey begins here'], '#c8a96a', 512, 860), toneMapped: false }),
@@ -440,6 +455,8 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     // north feature wall
     prom.box(std('#ffffff', 0.6, 0, { map: flutedTexture('#b48c62', 24) }), 16, STORE.promenadeHeight, 0.3, 0, STORE.promenadeHeight / 2, P.minZ);
     wallC(P.minX, P.maxX, P.minZ - 0.4, P.minZ + 0.15);
+    // brand emblem at the far end of the promenade
+    root.add(logoDisc(2.1, 0, 4.1, P.minZ + 0.17, 0));
     // benches + planters down the centre line
     [-4, -24, -40].forEach((z) => {
       prom.box(std('#e9e3d8', 0.85), 0.8, 0.45, 3.2, 0, 0.225, z);
