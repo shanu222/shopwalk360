@@ -110,7 +110,6 @@ export const StoreEntrance: React.FC<Props> = ({ onChoose }) => (
 
       <div className="max-w-xl text-center">
         <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">ShopWalk 360</h1>
-        <p className="mt-2 text-sm leading-relaxed text-white/75 sm:text-base">The official online store at shopwalk360.com. Shop the catalogue, or walk the 3D store with your avatar and buy in the same cart.</p>
       </div>
 
       <div className="grid w-full max-w-3xl grid-cols-1 gap-6 min-[520px]:grid-cols-2 sm:gap-8">
