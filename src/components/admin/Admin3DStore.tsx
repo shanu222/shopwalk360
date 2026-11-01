@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Building2, Layers, Plus, Trash2, CheckCircle2, AlertCircle, Eye, Save, Upload, Video, Box, Ruler, Shirt, Image as ImageIcon, Megaphone, Map as MapIcon, X, ArrowUp, ArrowDown,
 } from 'lucide-react';
-import { StoreDepartment, StoreShelf, Product, Category, PromoScreen, ProductVariant, TryOnType } from '../../types';
+import { StoreDepartment, StoreShelf, Product, Category, PromoScreen, LedScreen, ProductVariant, TryOnType } from '../../types';
 import { StoreMap } from '../store3d/StoreMap';
 import { SLOTS, SLOT_BY_CODE, roomForSlot, formatDeptNumber, INTERIOR_LABELS } from '../store3d/layout/storeLayout';
 import { MODEL_PRESETS } from '../store3d/builder/productModels';
@@ -81,6 +81,7 @@ export const Admin3DStore: React.FC<Props> = ({ products, onPreviewStore }) => {
   const [departments, setDepartments] = useState<StoreDepartment[]>([]);
   const [shelves, setShelves] = useState<StoreShelf[]>([]);
   const [promos, setPromos] = useState<PromoScreen[]>([]);
+  const [leds, setLeds] = useState<LedScreen[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [allProducts, setAllProducts] = useState<Product[]>(products);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -101,6 +102,7 @@ export const Admin3DStore: React.FC<Props> = ({ products, onPreviewStore }) => {
     setDepartments(depts.departments || []);
     setShelves(lay.shelves || []);
     setPromos(pr.promos || []);
+    setLeds(lay.leds || []);
     setCategories(cats.categories || []);
     if (prods.products) setAllProducts(prods.products);
   };
@@ -155,7 +157,7 @@ export const Admin3DStore: React.FC<Props> = ({ products, onPreviewStore }) => {
       {tab === 'departments' && <DepartmentsTab departments={departments} categories={categories} call={call} reload={load} flash={flash} />}
       {tab === 'fixtures' && <FixturesTab departments={departments} shelves={shelves} products={allProducts} call={call} reload={load} flash={flash} />}
       {tab === 'products' && <ProductTab products={allProducts} departments={departments} shelves={shelves} call={call} reload={load} flash={flash} />}
-      {tab === 'promos' && <PromosTab promos={promos} departments={departments} products={allProducts} call={call} reload={load} flash={flash} />}
+      {tab === 'promos' && <PromosTab promos={promos} leds={leds} departments={departments} products={allProducts} call={call} reload={load} flash={flash} />}
     </div>
   );
 };
@@ -284,7 +286,15 @@ function DepartmentsTab({ departments, categories, call, reload, flash }: { depa
               </select>
             </div>
             <div className="sm:col-span-2"><label className={label}>Short description (fascia & directory)</label><input className={input} value={edit.description || ''} onChange={(e) => setEdit({ ...edit, description: e.target.value })} /></div>
-            <div className="sm:col-span-2"><label className={label}>Information screen message</label><textarea rows={2} className={input} value={edit.info_text || ''} onChange={(e) => setEdit({ ...edit, info_text: e.target.value })} /></div>
+            <div className="sm:col-span-2"><label className={label}>Information screen message</label><textarea rows={3} className={input} value={edit.info_text || ''} onChange={(e) => setEdit({ ...edit, info_text: e.target.value })} placeholder="Shown as moving text on the department LED when no video is set" /></div>
+            <div className="sm:col-span-2">
+              <label className={label}>Information screen video</label>
+              <div className="flex flex-wrap items-center gap-2">
+                <input className={input} value={edit.info_video_url || ''} onChange={(e) => setEdit({ ...edit, info_video_url: e.target.value })} placeholder="MP4 or WebM URL, or upload" />
+                <UploadButton kind="video" accept="video/mp4,video/webm" text="Upload" onUploaded={(url) => setEdit({ ...edit, info_video_url: url })} />
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">Optional. When set, this video plays on the department screen. Otherwise the message above scrolls on the LED.</p>
+            </div>
             <label className="flex items-center gap-2 text-xs font-semibold"><input type="checkbox" checked={edit.is_active !== 0} onChange={(e) => setEdit({ ...edit, is_active: e.target.checked ? 1 : 0 })} /> Open to shoppers</label>
           </div>
           <ModalActions onCancel={() => setEdit(null)} onSave={save} />
@@ -696,8 +706,29 @@ function ProductTab({ products, departments, shelves, call, reload, flash }: { p
 }
 
 /* ---------------------------------------------------------------------------------------------- */
-function PromosTab({ promos, departments, products, call, reload, flash }: { promos: PromoScreen[]; departments: StoreDepartment[]; products: Product[]; call: Call; reload: () => Promise<void>; flash: Flash }) {
+const LED_NAMES: Record<string, string> = {
+  avatar: 'Avatar Studio totem',
+  welcome: 'Welcome wall',
+  directory: 'Department directory',
+  map: 'Store map',
+  checkout: 'Checkout',
+  baskets: 'Basket station',
+};
+
+function PromosTab({ promos, leds, departments, products, call, reload, flash }: { promos: PromoScreen[]; leds: LedScreen[]; departments: StoreDepartment[]; products: Product[]; call: Call; reload: () => Promise<void>; flash: Flash }) {
   const [edit, setEdit] = useState<Partial<PromoScreen> | null>(null);
+  const [led, setLed] = useState<LedScreen | null>(null);
+  const saveLed = async () => {
+    if (!led) return;
+    try {
+      await call(`/api/admin/store3d/leds/${led.id}`, 'PUT', led);
+      setLed(null);
+      await reload();
+      flash(true, 'LED screen saved. Reload the virtual store to see it.');
+    } catch (e: any) {
+      flash(false, e.message);
+    }
+  };
   const save = async () => {
     if (!edit) return;
     try {
@@ -713,8 +744,19 @@ function PromosTab({ promos, departments, products, call, reload, flash }: { pro
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-slate-500">Up to three lobby screens are shown as digital totems near the entrance. Each screen shows the linked product’s live photo and price.</p>
+        <p className="text-xs text-slate-500">Store screens are large LEDs. The message scrolls. Add a video and that screen plays it instead. Without a video, the text below is what shoppers see.</p>
         <button onClick={() => setEdit({ location: 'lobby', accent_color: '#c8a96a', is_active: 1 })} className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white"><Plus className="h-4 w-4" /> Add screen</button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {leds.map((s) => (
+          <div key={s.id} className="rounded-2xl border border-slate-200 bg-slate-950 p-4 text-xs text-white">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-[#c8a96a]">{LED_NAMES[s.id] || s.id}</div>
+            <div className="mt-1 font-bold">{s.title}</div>
+            <div className="mt-1 line-clamp-2 text-slate-300">{s.body || 'Department names scroll here'}</div>
+            <div className="mt-2 text-[11px] text-slate-400">{s.video_url ? 'Video set' : 'Text only'}</div>
+            <button onClick={() => setLed(s)} className="mt-2 font-semibold text-[#e2c88f]">Edit screen</button>
+          </div>
+        ))}
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {promos.map((p) => (
@@ -747,12 +789,37 @@ function PromosTab({ promos, departments, products, call, reload, flash }: { pro
                 {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
+            <div>
+              <label className={label}>Screen video</label>
+              <div className="flex flex-wrap items-center gap-2">
+                <input className={input} value={edit.video_url || ''} onChange={(e) => setEdit({ ...edit, video_url: e.target.value })} placeholder="Optional MP4 or WebM" />
+                <UploadButton kind="video" accept="video/mp4,video/webm" text="Upload" onUploaded={(url) => setEdit({ ...edit, video_url: url })} />
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">Leave empty to scroll the title and subtitle on the LED.</p>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div><label className={label}>Accent colour</label><input type="color" className="h-9 w-full rounded-xl border border-slate-300" value={edit.accent_color || '#c8a96a'} onChange={(e) => setEdit({ ...edit, accent_color: e.target.value })} /></div>
               <div><label className={label}>Order</label><input type="number" className={input} value={edit.display_order ?? 0} onChange={(e) => setEdit({ ...edit, display_order: Number(e.target.value) })} /></div>
             </div>
           </div>
           <ModalActions onCancel={() => setEdit(null)} onSave={save} />
+        </Modal>
+      )}
+      {led && (
+        <Modal title={LED_NAMES[led.id] || led.title} onClose={() => setLed(null)}>
+          <div className="grid gap-3">
+            <div><label className={label}>Headline</label><input className={input} value={led.title} onChange={(e) => setLed({ ...led, title: e.target.value })} /></div>
+            <div><label className={label}>Scrolling message</label><textarea rows={4} className={input} value={led.body || ''} onChange={(e) => setLed({ ...led, body: e.target.value })} placeholder="One line per row. This moves across the LED when no video is set." /></div>
+            <div>
+              <label className={label}>Video</label>
+              <div className="flex flex-wrap items-center gap-2">
+                <input className={input} value={led.video_url || ''} onChange={(e) => setLed({ ...led, video_url: e.target.value })} placeholder="Optional MP4 or WebM" />
+                <UploadButton kind="video" accept="video/mp4,video/webm" text="Upload" onUploaded={(url) => setLed({ ...led, video_url: url })} />
+              </div>
+              {led.video_url && <button type="button" onClick={() => setLed({ ...led, video_url: '' })} className="mt-2 text-xs font-semibold text-rose-600">Remove video</button>}
+            </div>
+          </div>
+          <ModalActions onCancel={() => setLed(null)} onSave={saveLed} />
         </Modal>
       )}
     </div>

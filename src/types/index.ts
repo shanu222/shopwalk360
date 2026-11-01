@@ -312,6 +312,7 @@ export interface StoreDepartment {
   interior_style?: InteriorStyle;
   lighting?: 'warm' | 'neutral' | 'cool';
   info_text?: string;
+  info_video_url?: string;
   entrance_style?: string;
   is_active?: number;
   category_name?: string;
@@ -391,6 +392,15 @@ export interface PromoScreen {
   accent_color?: string;
   display_order?: number;
   is_active?: number;
+  video_url?: string;
+}
+
+export interface LedScreen {
+  id: string;
+  title: string;
+  body?: string;
+  video_url?: string;
+  accent_color?: string;
 }
 
 export interface StoreLayoutV2 {
@@ -398,6 +408,7 @@ export interface StoreLayoutV2 {
   departments: StoreDepartment[];
   shelves: StoreShelf[];
   promos: PromoScreen[];
+  leds?: LedScreen[];
   layoutVersion: number;
 }
 

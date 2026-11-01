@@ -350,14 +350,14 @@ function demoTable(ctx: FixtureCtxInternal, shelf: StoreShelf, kitchen = false):
   }
   // demonstration screen on a slim stand behind the table
   add(0.06, 1.9, 0.06, 0, 0.95, -D / 2 - 0.25, std(c.palette.metal, 0.3, 0.8));
-  const screenFrame = new THREE.BoxGeometry(1.72, 0.99, 0.05);
-  c.batch.addMatrix(screenFrame, std('#0d0e10', 0.4, 0.3), p.matrix(0, 1.95, -D / 2 - 0.22));
+  const screenFrame = new THREE.BoxGeometry(2.28, 1.32, 0.05);
+  c.batch.addMatrix(screenFrame, std('#0d0e10', 0.4, 0.3), p.matrix(0, 2.05, -D / 2 - 0.22));
   screenFrame.dispose();
-  const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.64, 0.92), new THREE.MeshBasicMaterial({ color: '#111' }));
-  screen.applyMatrix4(p.matrix(0, 1.95, -D / 2 - 0.194));
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(2.16, 1.22), new THREE.MeshBasicMaterial({ color: '#111' }));
+  screen.applyMatrix4(p.matrix(0, 2.05, -D / 2 - 0.194));
   bayTag(c, p, shelf, W / 2 - 0.25, H - 0.16, D / 2 + 0.004);
   shadowDecal(c, p, W, D);
-  return { w: W, d: D + 0.5, h: 2.5, screen, dynamic: [screen] };
+  return { w: W, d: D + 0.55, h: 2.75, screen, dynamic: [screen] };
 }
 
 function mannequinFixture(ctx: FixtureCtxInternal, shelf: StoreShelf, palette: FixturePalette): FixtureResult {
@@ -513,9 +513,9 @@ function fittingStation(ctx: FixtureCtxInternal, shelf: StoreShelf, palette: Fix
   // vertical light bars
   [-1.42, 1.42].forEach((x) => add(0.04, 2.0, 0.04, x, 1.1, -0.55, emissive('#fff2e2', 1.2)));
   // interactive screen
-  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.66, 0.4), new THREE.MeshBasicMaterial({ color: '#111' }));
-  screen.applyMatrix4(p.matrix(1.05, 1.25, 0.25, -0.8));
-  add(0.72, 0.46, 0.04, 1.06, 1.25, 0.23, std('#0e0f11', 0.4, 0.3), -0.8);
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 0.6), new THREE.MeshBasicMaterial({ color: '#111' }));
+  screen.applyMatrix4(p.matrix(1.05, 1.35, 0.28, -0.8));
+  add(1.12, 0.68, 0.04, 1.06, 1.35, 0.26, std('#0e0f11', 0.4, 0.3), -0.8);
   add(0.05, 1.1, 0.05, 1.1, 0.6, 0.2, std(palette.metal, 0.3, 0.8));
   const tex = simpleScreenTexture(shelf.featured_label || 'Virtual try-on', [shelf.product_name ? `Try ${shelf.product_name.replace(/\s*\(Sample Listing\)/, '')}` : 'Select a product to try', 'Choose “Explore Product” → Try-On'], palette.accent, 768, 460);
   (screen.material as THREE.MeshBasicMaterial).map = tex;

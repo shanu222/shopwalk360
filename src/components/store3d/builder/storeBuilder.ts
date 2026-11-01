@@ -5,12 +5,13 @@ import {
   plasterTexture, flutedTexture, rubberTexture, lightPoolTexture, contactShadowTexture,
 } from './materials';
 import {
-  fasciaTexture, bladeTexture, aisleSignTexture, wayfindingTexture, welcomeWallTexture, buildFacadeSign, directoryTexture,
-  promoTexture, deptInfoTexture, packagingTexture, simpleScreenTexture,
+  fasciaTexture, bladeTexture, aisleSignTexture, wayfindingTexture, buildFacadeSign,
+  packagingTexture, simpleScreenTexture,
 } from './signage';
+import { createLedBoard } from './ledScreen';
 import { buildFixture, FixturePalette } from './fixtures';
 import { STORE, Rect, roomForSlot, placeFixture, RoomGeometry, localToWorld } from '../layout/storeLayout';
-import { StoreDepartment, StoreShelf, PromoScreen, InteriorStyle } from '../../../types';
+import { StoreDepartment, StoreShelf, PromoScreen, InteriorStyle, LedScreen } from '../../../types';
 
 export type TargetKind = 'product' | 'reception' | 'checkout' | 'basket' | 'map' | 'dept_info' | 'promo';
 
@@ -30,7 +31,8 @@ export interface InteractiveTarget {
 
 export interface VideoScreen {
   mesh: THREE.Mesh;
-  shelf: StoreShelf;
+  id: string;
+  videoUrl: string;
   center: THREE.Vector3;
 }
 
@@ -126,6 +128,7 @@ const STYLES: Record<InteriorStyle, StyleDef> = {
 export interface BuildOptions {
   quality: 'high' | 'balanced' | 'low';
   storeName: string;
+  leds?: LedScreen[];
   onProgress?: (p: number, label: string) => void;
 }
 
@@ -138,7 +141,24 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
   const colliders: Rect[] = [];
   const targets: InteractiveTarget[] = [];
   const videoScreens: VideoScreen[] = [];
+  const ledAnims: ((t: number) => void)[] = [];
+  const ledById = new Map((opts.leds || []).map((l) => [l.id, l]));
   const hitGroup = new THREE.Group();
+
+  const mountLed = (key: string, fallbackTitle: string, fallbackLines: string[], w: number, h: number, x: number, y: number, z: number, ry = 0, accent?: string) => {
+    const row = ledById.get(key);
+    const title = row?.title || fallbackTitle;
+    const lines = row?.body?.trim() ? row.body.split('\n').map((s) => s.trim()).filter(Boolean) : fallbackLines;
+    const board = createLedBoard({ title, lines, accent: row?.accent_color || accent || '#c8a96a', wide: w >= h });
+    disposables.push(board);
+    ledAnims.push(board.update);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: board.texture, toneMapped: false }));
+    mesh.position.set(x, y, z);
+    mesh.rotation.y = ry;
+    root.add(mesh);
+    if (row?.video_url) videoScreens.push({ mesh, id: `led_${key}`, videoUrl: row.video_url, center: mesh.position.clone() });
+    return mesh;
+  };
   const disposables: { dispose: () => void }[] = [];
 
   // ShopWalk 360 emblem (served with the website); shared texture, loads in the background
@@ -229,9 +249,9 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     wallC(22, 24, STORE.facadeZ, 53);
     wallC(-24, 24, 52, 53);
     [-14, -8, 8, 14].forEach((x) => wallC(x - 1.2, x + 1.2, 44.8, 47.2));
-    // avatar studio kiosk on the plaza
-    ext.box(std('#1d1e20', 0.4, 0.4), 0.9, 2.1, 0.3, 6.5, 1.05, 40.2, -0.5);
-    wallC(5.9, 7.1, 39.8, 40.6);
+    // avatar studio LED totem on the plaza
+    ext.box(std('#141518', 0.4, 0.5), 1.55, 2.55, 0.22, 6.5, 1.28, 40.2, -0.5);
+    wallC(5.7, 7.3, 39.6, 40.8);
   }
   root.add(ext.build('exterior'));
   // big façade lettering — raised letters, kept separate so they can animate
@@ -244,13 +264,7 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     facadeAnim = (t) => sign.update(t);
     // brand emblems on the stone piers either side of the entrance
     [-19, 19].forEach((x) => root.add(logoDisc(2.3, x, 5.6, STORE.facadeZ + 0.33, 0)));
-    const kiosk = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.78, 1.3),
-      new THREE.MeshBasicMaterial({ map: simpleScreenTexture('Avatar Studio', ['Create your virtual self', 'Step inside — your shopping journey begins here'], '#c8a96a', 512, 860), toneMapped: false }),
-    );
-    kiosk.position.set(6.5 + Math.sin(-0.5) * 0.16, 1.35, 40.2 + Math.cos(-0.5) * 0.16);
-    kiosk.rotation.y = -0.5;
-    root.add(kiosk);
+    mountLed('avatar', 'Avatar Studio', ['Create your virtual self', 'Step inside — your shopping journey begins here'], 1.4, 2.3, 6.5 + Math.sin(-0.5) * 0.16, 1.4, 40.2 + Math.cos(-0.5) * 0.16, -0.5);
   }
   // automatic sliding doors
   const doorLeaf = (sign: number) => {
@@ -386,45 +400,48 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
   disposables.push({ dispose: centre.dispose } as any);
   wallC(-centre.radius, centre.radius, 27.5 - centre.radius, 27.5 + centre.radius);
 
-  // lobby screens (unique textures)
-  const addScreen = (t: THREE.Texture, w: number, h: number, x: number, y: number, z: number, ry = 0) => {
-    disposables.push(t);
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: t, toneMapped: false }));
-    m.position.set(x, y, z);
-    m.rotation.y = ry;
-    root.add(m);
-    return m;
-  };
   {
     // welcome LED wall suspended above the reception
     const frame = new THREE.Mesh(new THREE.BoxGeometry(10.4, 4.0, 0.2), std('#141518', 0.4, 0.4));
     frame.position.set(0, 7.2, STORE.reception.z - 3.8);
     root.add(frame);
-    addScreen(welcomeWallTexture(opts.storeName ? `Operated by ${opts.storeName}` : ''), 10, 3.75, 0, 7.2, STORE.reception.z - 3.69);
-    const dirTex = directoryTexture(departments);
-    disposables.push(dirTex);
-    [-5.2, 5.2].forEach((x) => {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(1.08, 2.16), new THREE.MeshBasicMaterial({ map: dirTex, toneMapped: false }));
-      m.position.set(x, 1.3, 13.56);
-      root.add(m);
-      const m2 = m.clone();
-      m2.position.z = 13.24;
-      m2.rotation.y = Math.PI;
-      root.add(m2);
-    });
-    addScreen(simpleScreenTexture('Store Map', ['Tap or press E to open the interactive map', 'Search any product and we will guide you to it'], '#c8a96a', 800, 500), 0.8, 0.5, STORE.mapKiosk.x, 1.22, STORE.mapKiosk.z + 0.1, 0).rotation.x = -0.6;
-    addScreen(simpleScreenTexture('CHECKOUT', ['Pay at the counter', 'Cash on delivery · Bank transfer · Card'], '#c8a96a', 1024, 380), 2.6, 0.96, 16.35, 3.2, 22, -Math.PI / 2);
-    addScreen(simpleScreenTexture('Baskets', ['Pick up a basket', 'Your basket fills as you shop'], '#b0172c', 768, 420), 1.6, 0.88, STORE.basketStation.x, 2.1, STORE.basketStation.z - 0.65, 0);
+    mountLed('welcome', 'ShopWalk 360', ['Welcome', opts.storeName ? `Operated by ${opts.storeName}` : 'Explore · Experience · Discover'], 10, 3.6, 0, 7.2, STORE.reception.z - 3.69);
+    const dirLines = departments.map((d) => d.name).filter(Boolean);
+    const dir = mountLed('directory', 'Departments', dirLines.length ? dirLines : ['Department directory'], 1.25, 2.3, -5.2, 1.4, 13.56);
+    const dirBack = dir.clone();
+    dirBack.position.z = 13.24;
+    dirBack.rotation.y = Math.PI;
+    root.add(dirBack);
+    const dirRight = dir.clone();
+    dirRight.position.x = 5.2;
+    root.add(dirRight);
+    const dirRightBack = dir.clone();
+    dirRightBack.position.set(5.2, 1.4, 13.24);
+    dirRightBack.rotation.y = Math.PI;
+    root.add(dirRightBack);
+    const mapLed = mountLed('map', 'Store Map', ['Open the interactive map', 'Search any product and we will guide you'], 1.7, 0.96, STORE.mapKiosk.x, 1.28, STORE.mapKiosk.z + 0.12);
+    mapLed.rotation.x = -0.55;
+    mountLed('checkout', 'Checkout', ['Pay at the counter', 'Cash on delivery · Bank transfer · Card'], 3.2, 1.35, 16.35, 3.15, 22, -Math.PI / 2);
+    mountLed('baskets', 'Baskets', ['Pick up a basket', 'Your basket fills as you shop'], 2.4, 1.2, STORE.basketStation.x, 2.15, STORE.basketStation.z - 0.65, 0, '#e23b4a');
     // promos: freestanding digital totems
     const promoSpots: [number, number, number][] = [[-10.5, 16.2, 0.35], [10.5, 15.6, -0.35], [-8.6, 31, 0.6]];
     promos.filter((p) => p.location === 'lobby').slice(0, 3).forEach((p, i) => {
       const [x, z, ry] = promoSpots[i];
-      const body = new THREE.Mesh(new THREE.BoxGeometry(1.25, 2.3, 0.18), std('#141518', 0.4, 0.4));
-      body.position.set(x, 1.15, z);
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1.55, 2.55, 0.18), std('#141518', 0.4, 0.4));
+      body.position.set(x, 1.28, z);
       body.rotation.y = ry;
       root.add(body);
-      addScreen(promoTexture(p), 1.12, 1.68, x + Math.sin(ry) * 0.095, 1.3, z + Math.cos(ry) * 0.095, ry);
-      colliders.push({ minX: x - 0.75, maxX: x + 0.75, minZ: z - 0.4, maxZ: z + 0.4 });
+      const price = p.discount_price || p.regular_price;
+      const lines = [p.subtitle || '', p.product_name || '', price ? `PKR ${Number(price).toLocaleString()}` : ''].filter(Boolean);
+      const board = createLedBoard({ title: p.title, lines, accent: p.accent_color, wide: false });
+      disposables.push(board);
+      ledAnims.push(board.update);
+      const promoMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 2.3), new THREE.MeshBasicMaterial({ map: board.texture, toneMapped: false }));
+      promoMesh.position.set(x + Math.sin(ry) * 0.1, 1.4, z + Math.cos(ry) * 0.1);
+      promoMesh.rotation.y = ry;
+      root.add(promoMesh);
+      if (p.video_url) videoScreens.push({ mesh: promoMesh, id: `promo_${p.id}`, videoUrl: p.video_url, center: promoMesh.position.clone() });
+      colliders.push({ minX: x - 0.95, maxX: x + 0.95, minZ: z - 0.55, maxZ: z + 0.55 });
       targets.push({
         id: `promo_${p.id}`, kind: 'promo', title: p.title, subtitle: p.product_name || p.subtitle || '',
         position: new THREE.Vector3(x, 1.4, z), stand: { x: x + Math.sin(ry) * 1.5, z: z + Math.cos(ry) * 1.5 }, promo: p,
@@ -501,7 +518,7 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
         root.add(c);
       });
     }
-    addScreen(directoryTexture(departments), 2.2, 4.4, 0, 3.2, STORE.promenade.minZ + 0.17);
+    mountLed('directory', 'Departments', departments.map((d) => d.name).filter(Boolean), 2.2, 3.6, 0, 2.5, STORE.promenade.minZ + 0.2);
   }
 
   /* ================================= DEPARTMENT ROOMS ================================= */
@@ -606,16 +623,28 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
       const hd = (rot ? res.w : res.d) / 2 + 0.15;
       colliders.push({ minX: placed.x - hw, maxX: placed.x + hw, minZ: placed.z - hd, maxZ: placed.z + hd });
       res.dynamic.forEach((o) => root.add(o));
-      if (res.screen && shelf.product_video_url && shelf.product_video_type === 'file') {
-        videoScreens.push({ mesh: res.screen, shelf, center: res.screen.position.clone() });
-      } else if (res.screen && shelf.shelf_type !== 'fitting_station') {
+      if (res.screen) {
         const m = res.screen.material as THREE.MeshBasicMaterial;
-        m.map = simpleScreenTexture(shelf.product_name ? shelf.product_name.replace(/\s*\(Sample Listing\)/, '') : 'Demonstration zone', [
-          shelf.product_video_url ? 'Demonstration video available — choose Explore Product' : 'Explore the product in 3D and read how it works',
-          shelf.featured_label || '',
-        ].filter(Boolean), accent, 1024, 576);
+        m.map?.dispose();
+        const name = shelf.product_name ? shelf.product_name.replace(/\s*\(Sample Listing\)/, '') : '';
+        const fitting = shelf.shelf_type === 'fitting_station';
+        const board = createLedBoard({
+          title: fitting ? (shelf.featured_label || 'Virtual try-on') : (name || 'Demonstration'),
+          lines: fitting
+            ? [name ? `Try ${name}` : 'Select a product to try', 'Explore the product, then open Try-On']
+            : [shelf.featured_label || '', shelf.product_video_url ? 'Demonstration playing on this screen' : 'Explore the product and see how it works'].filter(Boolean),
+          accent,
+          wide: true,
+        });
+        disposables.push(board);
+        ledAnims.push(board.update);
+        m.map = board.texture;
         m.color.set('#ffffff');
+        m.toneMapped = false;
         m.needsUpdate = true;
+        if (shelf.product_video_url && shelf.product_video_type === 'file') {
+          videoScreens.push({ mesh: res.screen, id: shelf.id, videoUrl: shelf.product_video_url, center: res.screen.position.clone() });
+        }
       }
       // invisible hit volume for click selection
       const hit = new THREE.Mesh(new THREE.BoxGeometry(res.w, res.h, res.d));
@@ -679,15 +708,22 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
       });
       // department information screen just inside the entrance (faces arriving shoppers)
       const ip = localToWorld(room, 3.2, 4.05);
-      const info = deptInfoTexture(dept, productCount, hasDemo);
-      disposables.push(info);
-      const stand = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.2, 0.08), std('#2a2b2e', 0.4, 0.5));
-      stand.position.set(ip.x, 0.6, ip.z);
+      const infoLines = [
+        dept.info_text || dept.description || '',
+        productCount > 0 ? `${productCount} displays in this department` : 'No products listed yet',
+        hasDemo ? 'Demonstration zone at the back' : '',
+      ].filter(Boolean);
+      const infoBoard = createLedBoard({ title: dept.name, lines: infoLines, accent: dept.theme_color || '#c8a96a', wide: true });
+      disposables.push(infoBoard);
+      ledAnims.push(infoBoard.update);
+      const stand = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.35, 0.1), std('#2a2b2e', 0.4, 0.5));
+      stand.position.set(ip.x, 0.68, ip.z);
       root.add(stand);
-      const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.96, 0.6), new THREE.MeshBasicMaterial({ map: info, toneMapped: false }));
-      scr.position.set(ip.x - room.inward * 0.05, 1.5, ip.z);
+      const scr = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.15), new THREE.MeshBasicMaterial({ map: infoBoard.texture, toneMapped: false }));
+      scr.position.set(ip.x - room.inward * 0.06, 1.7, ip.z);
       scr.rotation.y = Math.atan2(-room.inward, -0.6);
       root.add(scr);
+      if (dept.info_video_url) videoScreens.push({ mesh: scr, id: `info_${dept.id}`, videoUrl: dept.info_video_url, center: scr.position.clone() });
       colliders.push({ minX: ip.x - 0.3, maxX: ip.x + 0.3, minZ: ip.z - 0.3, maxZ: ip.z + 0.3 });
       targets.push({
         id: `info_${dept.id}`, kind: 'dept_info', title: dept.name, subtitle: dept.description || '', department: dept,
@@ -753,6 +789,7 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     animate: (t: number, dt: number) => {
       centre.update(t, dt);
       facadeAnim(t);
+      for (const draw of ledAnims) draw(t);
     },
     roomLighting,
     deptBySlot,

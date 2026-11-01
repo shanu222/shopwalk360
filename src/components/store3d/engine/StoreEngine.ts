@@ -277,6 +277,7 @@ export class StoreEngine {
     const built = await buildStore(layout.departments, layout.shelves, layout.promos || [], {
       quality: this.quality,
       storeName: layout.storeName,
+      leds: layout.leds || [],
       onProgress: (p, l) => this.events.onProgress?.(p, l),
     });
     if (this.disposed) {
@@ -1101,12 +1102,12 @@ export class StoreEngine {
     if (!this.store) return;
     for (const s of this.store.videoScreens) {
       const d = Math.hypot(s.center.x - this.pos.x, s.center.z - this.pos.z);
-      const id = s.shelf.id;
+      const id = s.id;
       let v = this.videos.get(id);
-      if (d < 9 && !this.paused) {
+      if (d < 14 && !this.paused) {
         if (!v) {
           const video = document.createElement('video');
-          video.src = mediaUrl(s.shelf.product_video_url);
+          video.src = mediaUrl(s.videoUrl);
           video.muted = true;
           video.loop = true;
           video.playsInline = true;

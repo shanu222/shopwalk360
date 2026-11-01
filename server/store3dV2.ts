@@ -60,6 +60,7 @@ export function migrateStoreExperienceV2() {
   addColumn('store_departments', 'interior_style', 'TEXT');
   addColumn('store_departments', 'lighting', 'TEXT');
   addColumn('store_departments', 'info_text', 'TEXT');
+  addColumn('store_departments', 'info_video_url', 'TEXT');
   addColumn('store_departments', 'entrance_style', 'TEXT');
   addColumn('store_departments', 'is_active', 'INTEGER DEFAULT 1');
 
@@ -70,6 +71,14 @@ export function migrateStoreExperienceV2() {
   addColumn('store_shelves', 'zone', 'TEXT DEFAULT \'display\'');
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS store_led_screens (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      body TEXT,
+      video_url TEXT,
+      accent_color TEXT DEFAULT '#c8a96a'
+    );
+
     CREATE TABLE IF NOT EXISTS store_promo_screens (
       id TEXT PRIMARY KEY,
       location TEXT NOT NULL DEFAULT 'lobby',
@@ -98,6 +107,16 @@ export function migrateStoreExperienceV2() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+  addColumn('store_promo_screens', 'video_url', 'TEXT');
+  const seedLed = db.prepare('INSERT OR IGNORE INTO store_led_screens (id, title, body, accent_color) VALUES (?, ?, ?, ?)');
+  [
+    ['avatar', 'Avatar Studio', 'Create your virtual self\nStep inside — your shopping journey begins here'],
+    ['welcome', 'ShopWalk 360', 'Welcome\nExplore · Experience · Discover'],
+    ['directory', 'Departments', ''],
+    ['map', 'Store Map', 'Open the interactive map\nSearch any product and we will guide you'],
+    ['checkout', 'Checkout', 'Pay at the counter\nCash on delivery · Bank transfer · Card'],
+    ['baskets', 'Baskets', 'Pick up a basket\nYour basket fills as you shop'],
+  ].forEach((row) => seedLed.run(...row, '#c8a96a'));
 
   if (getSetting('store3d_layout_version') === LAYOUT_VERSION) return;
   console.log('Migrating ShopWalk 360 store layout to v2 (department rooms + fixtures)...');
@@ -342,8 +361,9 @@ store3dRouter.get('/store3d/v2/layout', (_req, res) => {
       WHERE ps.is_active = 1 ORDER BY ps.display_order ASC
     `).all();
 
+    const leds = db.prepare('SELECT * FROM store_led_screens').all();
     const storeName = 'ShopWalk 360';
-    res.json({ storeName, departments, shelves, promos, layoutVersion: Number(LAYOUT_VERSION) });
+    res.json({ storeName, departments, shelves, promos, leds, layoutVersion: Number(LAYOUT_VERSION) });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -508,7 +528,7 @@ store3dRouter.get('/admin/store3d/departments', requireAdmin, (_req, res) => {
   res.json({ departments: db.prepare('SELECT * FROM store_departments ORDER BY aisle_number').all() });
 });
 
-const deptFields = ['name', 'sign_label', 'category_id', 'aisle_number', 'theme_color', 'description', 'slot_index', 'interior_style', 'lighting', 'info_text', 'entrance_style', 'is_active'] as const;
+const deptFields = ['name', 'sign_label', 'category_id', 'aisle_number', 'theme_color', 'description', 'slot_index', 'interior_style', 'lighting', 'info_text', 'info_video_url', 'entrance_style', 'is_active'] as const;
 
 store3dRouter.post('/admin/store3d/departments', requireAdmin, (req, res) => {
   const b = req.body || {};
@@ -600,18 +620,28 @@ store3dRouter.post('/admin/store3d/promos', requireAdmin, (req, res) => {
   const b = req.body || {};
   if (!b.title) return res.status(400).json({ error: 'Title is required.' });
   const id = `promo_${Date.now()}`;
-  db.prepare('INSERT INTO store_promo_screens (id, location, title, subtitle, product_id, accent_color, display_order, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, b.location || 'lobby', b.title, b.subtitle || null, b.product_id || null, b.accent_color || '#c8a96a', Number(b.display_order || 0), b.is_active === false ? 0 : 1);
+  db.prepare('INSERT INTO store_promo_screens (id, location, title, subtitle, product_id, accent_color, display_order, is_active, video_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, b.location || 'lobby', b.title, b.subtitle || null, b.product_id || null, b.accent_color || '#c8a96a', Number(b.display_order || 0), b.is_active === false ? 0 : 1, b.video_url || null);
   res.json({ success: true, id });
 });
 store3dRouter.put('/admin/store3d/promos/:id', requireAdmin, (req, res) => {
   const b = req.body || {};
-  db.prepare('UPDATE store_promo_screens SET location = ?, title = ?, subtitle = ?, product_id = ?, accent_color = ?, display_order = ?, is_active = ? WHERE id = ?')
-    .run(b.location || 'lobby', b.title, b.subtitle || null, b.product_id || null, b.accent_color || '#c8a96a', Number(b.display_order || 0), b.is_active === false ? 0 : 1, req.params.id);
+  db.prepare('UPDATE store_promo_screens SET location = ?, title = ?, subtitle = ?, product_id = ?, accent_color = ?, display_order = ?, is_active = ?, video_url = ? WHERE id = ?')
+    .run(b.location || 'lobby', b.title, b.subtitle || null, b.product_id || null, b.accent_color || '#c8a96a', Number(b.display_order || 0), b.is_active === false ? 0 : 1, b.video_url || null, req.params.id);
   res.json({ success: true });
 });
 store3dRouter.delete('/admin/store3d/promos/:id', requireAdmin, (req, res) => {
   db.prepare('DELETE FROM store_promo_screens WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+store3dRouter.put('/admin/store3d/leds/:id', requireAdmin, (req, res) => {
+  const b = req.body || {};
+  const row = db.prepare('SELECT id FROM store_led_screens WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'That screen does not exist.' });
+  if (!b.title || String(b.title).trim().length < 1) return res.status(400).json({ error: 'Title is required.' });
+  db.prepare('UPDATE store_led_screens SET title = ?, body = ?, video_url = ?, accent_color = ? WHERE id = ?')
+    .run(String(b.title).slice(0, 80), b.body ? String(b.body).slice(0, 400) : null, b.video_url || null, b.accent_color || '#c8a96a', req.params.id);
   res.json({ success: true });
 });
 
