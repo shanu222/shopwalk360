@@ -5,7 +5,7 @@ import {
 import { AvatarConfig, HairStyle } from '../../../types';
 import { AvatarPreview, AvatarPreviewHandle, PreviewAngle } from './AvatarPreview';
 import { READY_MADE_AVATARS, normaliseAvatarConfig } from './AvatarModel';
-import { estimateAppearance, FaceOval, requestProviderAvatar, saveAvatar } from './avatarService';
+import { estimateAppearance, requestProviderAvatar, saveAvatar } from './avatarService';
 import { buildPhotoFace, preloadPhotoFace } from './photoFace';
 
 type Step = 'start' | 'photo' | 'presets' | 'generating' | 'preview' | 'customize';
@@ -88,7 +88,6 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
   const [consentProvider, setConsentProvider] = useState(false);
   const [camOn, setCamOn] = useState(false);
   const [camError, setCamError] = useState<string | null>(null);
-  const [oval, setOval] = useState<FaceOval>({ cx: 0.5, cy: 0.42, rx: 0.2, ry: 0.27 });
   const [genStatus, setGenStatus] = useState<string[]>([]);
   const [tab, setTab] = useState<'body' | 'face' | 'clothing' | 'accessories'>('body');
   const [saveAccount, setSaveAccount] = useState(false);
@@ -98,8 +97,6 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const previewRef = useRef<AvatarPreviewHandle>(null);
-  const dragRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
-  const photoBoxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (open) {
@@ -202,24 +199,20 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
       setGenStatus([...log]);
     };
     try {
-      push('Fitting a 3D head to the face in your photo…');
-      const est = await estimateAppearance(photoUrl, oval);
+      push('Using your full photo and lifting you out of the background…');
       const face = await buildPhotoFace(photoUrl);
-      if (!face) {
-        push('No face was found. Use a clear, front-facing photo and try again.');
-        setStep('photo');
-        return;
-      }
+      const est = await estimateAppearance(photoUrl, face.oval);
       let next: AvatarConfig = {
         ...cfg,
         skinTone: est.skinTone,
         hairColor: cfg.hairStyle === 'headscarf' ? cfg.hairColor : est.hairColor,
         outfitColor: est.topColor || cfg.outfitColor,
         portrait: face.portrait,
-        faceShape: face.faceShape,
+        photoFrame: face.photoFrame,
         source: 'photo-estimate',
         glbUrl: undefined,
       };
+      delete next.faceShape;
       if (providerAvailable && consentProvider) {
         push('Sending your photo to the store’s 3D avatar service…');
         try {
@@ -232,15 +225,11 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
           push(`3D avatar service error: ${e.message}. Using the customisable avatar instead.`);
         }
       }
-      push('Building your head…');
+      push('Placing your full photo on the avatar…');
       setCfg(next);
-      setEstimateNote(
-        est.confidence === 'good'
-          ? 'This head is shaped from your photo. The body stays the fitting model so clothes can be tried on.'
-          : 'This head is shaped from your photo. Check skin and clothing colours, then adjust anything you like.',
-      );
+      setEstimateNote('Your whole photo is on the avatar, with the background removed. The fitting body stays so clothes can still be tried on.');
       clearPhoto();
-      push('The original photo was removed. The 3D head stays on your avatar.');
+      push('The original file was removed. The full photo stays on your avatar.');
       await new Promise((r) => setTimeout(r, 450));
       setStep('preview');
     } catch (e: any) {
@@ -261,19 +250,6 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
       }
     }
     onConfirm(final, enter);
-  };
-
-  // face-oval dragging
-  const onOvalDown = (e: React.PointerEvent) => {
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    dragRef.current = { x: e.clientX, y: e.clientY, ox: oval.cx, oy: oval.cy };
-  };
-  const onOvalMove = (e: React.PointerEvent) => {
-    if (!dragRef.current || !photoBoxRef.current) return;
-    const r = photoBoxRef.current.getBoundingClientRect();
-    const dx = (e.clientX - dragRef.current.x) / r.width;
-    const dy = (e.clientY - dragRef.current.y) / r.height;
-    setOval((o) => ({ ...o, cx: Math.min(0.9, Math.max(0.1, dragRef.current!.ox + dx)), cy: Math.min(0.9, Math.max(0.1, dragRef.current!.oy + dy)) }));
   };
 
   if (!open) return null;
@@ -321,7 +297,7 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
                   <div className="rounded-xl bg-[#c8a96a]/15 p-3 text-[#c8a96a]"><Camera className="h-6 w-6" /></div>
                   <div className="flex-1">
                     <div className="font-semibold">Start from my photo</div>
-                    <div className="mt-1 text-xs leading-relaxed text-white/60">Upload a clear, front-facing photo. A 3D head is fitted to that face on this device. The body stays a fitting model so clothes can be tried on.</div>
+                    <div className="mt-1 text-xs leading-relaxed text-white/60">Upload the full photo. The whole picture is used, and the person is lifted out of the background on this device.</div>
                   </div>
                   <ArrowRight className="mt-1 h-5 w-5 text-white/40 transition group-hover:translate-x-1 group-hover:text-[#c8a96a]" />
                 </button>
@@ -336,7 +312,7 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
                 <div className="flex gap-3 rounded-2xl bg-white/[0.03] p-4 text-xs leading-relaxed text-white/60">
                   <ShieldCheck className="h-5 w-5 shrink-0 text-emerald-400" />
                   <div>
-                    <span className="font-semibold text-white/80">How your photo is handled.</span> The original stays in this browser while you are in the studio, then it is removed. A 3D head from that face can be remembered on this device. We do not identify you. Your account saves colours and clothing only.
+                    <span className="font-semibold text-white/80">How your photo is handled.</span> The whole photo stays in this browser while you are in the studio, then the original file is removed. The full picture can be remembered on this device. We do not identify you. Your account saves colours and clothing only.
                   </div>
                 </div>
               </div>
@@ -354,7 +330,7 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
 
                 <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-xs leading-relaxed text-white/75">
                   <input type="checkbox" checked={consentPhoto} onChange={(e) => setConsentPhoto(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#c8a96a]" />
-                  <span>I agree that my photo is processed <b>on this device</b> to build a 3D head and match skin, hair and clothing colours. The original photo is removed when I finish. The 3D head can be remembered on this device if I choose to save it.</span>
+                  <span>I agree that my <b>full photo</b> is processed on this device. The whole picture is used, the background is removed, and the original file is deleted when I finish. The picture can be remembered on this device if I choose to save it.</span>
                 </label>
 
                 {providerAvailable && (
@@ -385,7 +361,6 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
                   <div className="space-y-3">
                     <div className="relative overflow-hidden rounded-2xl bg-black">
                       <video ref={videoRef} playsInline muted className="aspect-[3/4] w-full -scale-x-100 object-cover sm:aspect-[4/3]" />
-                      <div className="pointer-events-none absolute left-1/2 top-[42%] h-[52%] w-[38%] -translate-x-1/2 -translate-y-1/2 rounded-[50%] border-2 border-dashed border-white/70" />
                       <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-rose-600/90 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide"><span className="h-1.5 w-1.5 rounded-full bg-white" /> Camera on</div>
                     </div>
                     <div className="flex gap-2">
@@ -397,21 +372,12 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
 
                 {photoUrl && (
                   <div className="space-y-3">
-                    <div className="text-xs text-white/65">Drag the oval so it sits over your face, and resize it with the slider.</div>
-                    <div ref={photoBoxRef} className="relative mx-auto max-w-sm touch-none select-none overflow-hidden rounded-2xl bg-black">
-                      <img src={photoUrl} alt="Your photo (kept on this device only)" className="block w-full" draggable={false} />
-                      <div
-                        onPointerDown={onOvalDown}
-                        onPointerMove={onOvalMove}
-                        onPointerUp={() => (dragRef.current = null)}
-                        className="absolute cursor-move rounded-[50%] border-2 border-[#c8a96a] shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]"
-                        style={{ left: `${(oval.cx - oval.rx) * 100}%`, top: `${(oval.cy - oval.ry) * 100}%`, width: `${oval.rx * 200}%`, height: `${oval.ry * 200}%` }}
-                        aria-label="Face position marker"
-                      />
+                    <div className="text-xs text-white/65">The whole photo is used. Nothing is cropped to a circle.</div>
+                    <div className="relative mx-auto max-w-sm overflow-hidden rounded-2xl bg-black">
+                      <img src={photoUrl} alt="Your full photo (kept on this device only)" className="block w-full" draggable={false} />
                     </div>
-                    <input type="range" min={0.1} max={0.4} step={0.01} value={oval.rx} aria-label="Face oval size" onChange={(e) => setOval((o) => ({ ...o, rx: +e.target.value, ry: +e.target.value * 1.35 }))} className="w-full accent-[#c8a96a]" />
                     <div className="flex flex-wrap gap-2">
-                      <button onClick={createFromPhoto} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#c8a96a] py-3 text-sm font-bold text-[#1a1712] hover:bg-[#d6b97c]"><Sparkles className="h-4 w-4" /> Create my avatar</button>
+                      <button onClick={createFromPhoto} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#c8a96a] py-3 text-sm font-bold text-[#1a1712] hover:bg-[#d6b97c]"><Sparkles className="h-4 w-4" /> Use my full photo</button>
                       <label className="flex cursor-pointer items-center gap-1.5 rounded-xl bg-white/10 px-4 py-3 text-xs font-semibold hover:bg-white/15">
                         <RotateCcw className="h-4 w-4" /> Replace
                         <input type="file" accept="image/jpeg,image/png,image/webp" onChange={onFile} className="hidden" />
@@ -486,9 +452,9 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
                   {saveError && <div className="text-rose-300">{saveError}</div>}
                 </div>
                 <p className="text-[11px] leading-relaxed text-white/45">
-                  {cfg.faceShape
-                    ? 'The head is a 3D model of the face in your photo. Clothes, height and accessories still change for try-on.'
-                    : 'Ready-made avatars use a styled figure. Start from a photo to build a 3D head from your face.'}
+                  {cfg.portrait
+                    ? 'This is your full photo, with the background removed. Clothes on the fitting body can still be changed.'
+                    : 'Ready-made avatars use a styled figure. Start from a photo to use your whole picture.'}
                 </p>
               </div>
             )}
@@ -501,12 +467,12 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
                   <div className="flex items-center gap-3 rounded-2xl border border-[#c8a96a]/35 bg-[#c8a96a]/10 p-3">
                     <img src={cfg.portrait} alt="" className="h-16 w-14 rounded-xl object-cover ring-1 ring-[#c8a96a]/50" />
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm font-semibold">3D head from your photo</div>
-                      <div className="mt-0.5 text-xs leading-relaxed text-white/65">Clothing, height and colours still apply. The body stays the fitting model.</div>
+                      <div className="text-sm font-semibold">Your full photo</div>
+                      <div className="mt-0.5 text-xs leading-relaxed text-white/65">The whole picture is shown. Clothing on the fitting body can still be changed.</div>
                     </div>
                     <div className="flex shrink-0 flex-col gap-1.5">
                       <button type="button" onClick={() => setStep('photo')} className="rounded-full bg-white/10 px-3 py-1.5 text-[11px] font-semibold hover:bg-white/15">New photo</button>
-                      <button type="button" onClick={() => setCfg((c) => { const n = { ...c }; delete n.portrait; delete n.faceShape; return n; })} className="rounded-full px-3 py-1.5 text-[11px] font-semibold text-rose-200 hover:bg-white/10">Remove</button>
+                      <button type="button" onClick={() => setCfg((c) => { const n = { ...c }; delete n.portrait; delete n.photoFrame; delete n.faceShape; return n; })} className="rounded-full px-3 py-1.5 text-[11px] font-semibold text-rose-200 hover:bg-white/10">Remove</button>
                     </div>
                   </div>
                 )}

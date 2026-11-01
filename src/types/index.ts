@@ -270,11 +270,13 @@ export interface AvatarConfig {
   source?: 'preset' | 'photo-estimate' | 'custom' | 'provider';
   avatarName: string;
   /**
-   * Head crop from the customer's photo, used as the skin of the 3D head.
-   * Kept in memory and, if they choose, on this device. Never sent to the account.
+   * The full uploaded photo with the background removed.
+   * Kept in memory and, if chosen, on this device. Never sent to the account.
    */
   portrait?: string;
-  /** Packed 3D face mesh for `portrait`. Device only, same rules as the portrait. */
+  /** Where the face sits in `portrait`, so the full photo can be placed on the body. */
+  photoFrame?: string;
+  /** @deprecated earlier face-mesh attempt. Ignored. */
   faceShape?: string;
   /** @deprecated photographs are never stored; kept only so old saved configs still parse */
   customPhotoUrl?: string;
