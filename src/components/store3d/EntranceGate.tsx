@@ -35,14 +35,18 @@ export const EntranceGate: React.FC<Props> = ({ ready, progress, progressLabel, 
         ) : saved ? (
           <div className="mt-7 space-y-3 rounded-3xl border border-white/15 bg-black/45 p-5 backdrop-blur-md">
             <div className="flex items-center gap-3">
-              <div className="flex -space-x-1.5">
-                {[saved.config.skinTone, saved.config.hairColor, saved.config.outfitColor].map((c, i) => (
-                  <span key={i} className="h-7 w-7 rounded-full border-2 border-black/60" style={{ backgroundColor: c }} />
-                ))}
-              </div>
+              {saved.config.portrait ? (
+                <img src={saved.config.portrait} alt="" className="h-14 w-14 rounded-full object-cover ring-2 ring-[#c8a96a]" />
+              ) : (
+                <div className="flex -space-x-1.5">
+                  {[saved.config.skinTone, saved.config.hairColor, saved.config.outfitColor].map((c, i) => (
+                    <span key={i} className="h-7 w-7 rounded-full border-2 border-black/60" style={{ backgroundColor: c }} />
+                  ))}
+                </div>
+              )}
               <div>
-                <div className="text-lg font-bold">Welcome Back!</div>
-                <div className="text-sm text-white/70">Continue with Your Virtual Self?</div>
+                <div className="text-lg font-bold">Welcome back</div>
+                <div className="text-sm text-white/70">{saved.config.portrait ? 'Continue with your photo face' : 'Continue with your virtual self'}</div>
               </div>
             </div>
             <button onClick={onContinueSaved} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#c8a96a] py-3.5 text-sm font-extrabold tracking-[0.1em] text-[#1a1712] hover:bg-[#d6b97c]">
@@ -53,7 +57,11 @@ export const EntranceGate: React.FC<Props> = ({ ready, progress, progressLabel, 
               <button onClick={onGuest} className="flex items-center justify-center gap-1.5 rounded-xl bg-white/10 py-2.5 font-semibold hover:bg-white/15"><User className="h-3.5 w-3.5" /> Guest</button>
               <button onClick={onDeleteSaved} className="flex items-center justify-center gap-1.5 rounded-xl bg-white/10 py-2.5 font-semibold text-rose-200 hover:bg-white/15"><Trash2 className="h-3.5 w-3.5" /> Delete</button>
             </div>
-            <div className="text-[11px] text-white/45">Saved {saved.where === 'account' ? 'to your account' : 'on this device'} · avatar settings only, no photo.</div>
+            <div className="text-[11px] text-white/45">
+              {saved.config.portrait
+                ? 'Saved on this device, including your photo face.'
+                : `Saved ${saved.where === 'account' ? 'to your account' : 'on this device'} · colours and clothing.`}
+            </div>
           </div>
         ) : (
           <div className="mt-7 space-y-3">

@@ -269,6 +269,11 @@ export interface AvatarConfig {
   glbUrl?: string;
   source?: 'preset' | 'photo-estimate' | 'custom' | 'provider';
   avatarName: string;
+  /**
+   * Cropped face from the customer's photo (small data URL). Shown on the avatar.
+   * Kept in memory and, if they choose, on this device. Never sent to the account.
+   */
+  portrait?: string;
   /** @deprecated photographs are never stored; kept only so old saved configs still parse */
   customPhotoUrl?: string;
 }

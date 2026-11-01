@@ -8,7 +8,8 @@
  *   basket carrying with visible items.
  * - Clothing / accessories are rebuilt from AvatarConfig so try-on can dress the avatar.
  *
- * This is NOT a photographic likeness. A photo-to-3D service can supply a GLB instead (see glbAvatar.ts).
+ * A photo supplies a cropped face (AvatarConfig.portrait) mapped on the front of the head.
+ * A photo-to-3D service can still supply a GLB instead (see glbAvatar.ts).
  */
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
@@ -147,6 +148,7 @@ export function createHumanAvatar(initial: AvatarConfig, opts: Options = {}): Av
   let materials: THREE.Material[] = [];
   let geometries: THREE.BufferGeometry[] = [];
   let built: THREE.Object3D[] = [];
+  let portraitTex: { url: string; tex: THREE.Texture } | null = null;
   let basketItems: THREE.Mesh[] = [];
   let basketCount = 0;
   let basketAllowed = false;
@@ -381,7 +383,7 @@ export function createHumanAvatar(initial: AvatarConfig, opts: Options = {}): Av
         const sun = cfg.glassesStyle === 'sun';
         const g = buildSunglasses(cfg.glassesColor || '#151515');
         g.group.scale.setScalar(1.02);
-        g.group.position.set(0, -0.0165, 0.094);
+        g.group.position.set(0, cfg.portrait ? 0.0 : -0.0165, cfg.portrait ? 0.132 : 0.094);
         g.group.traverse((o) => {
           const m = o as THREE.Mesh;
           if (m.isMesh) {
@@ -389,6 +391,7 @@ export function createHumanAvatar(initial: AvatarConfig, opts: Options = {}): Av
             if (!sun && (m.geometry as any).type === 'CircleGeometry') {
               m.material = track(new THREE.MeshStandardMaterial({ color: '#dfe9ee', transparent: true, opacity: 0.18, roughness: 0.05 }));
             }
+            if (cfg.portrait) m.renderOrder = 3;
           }
         });
         head.add(g.group);
@@ -482,6 +485,12 @@ export function createHumanAvatar(initial: AvatarConfig, opts: Options = {}): Av
     [-1, 1].forEach((sd) => add(head, new THREE.SphereGeometry(0.018, 12, 10), skin, sd * 0.073, 0.0, -0.005, 0, 0, 0, 0.45, 1.3, 0.85));
     if (mannequin) return;
 
+    if (cfg.portrait) {
+      addFacePhoto(cfg.portrait);
+      buildHair(hairM);
+      return;
+    }
+
     // nose
     add(head, new THREE.ConeGeometry(0.0115, 0.04, 12), skin, 0, -0.005, 0.098, 0.45, 0, 0, 1, 1, 0.8);
     add(head, new THREE.SphereGeometry(0.0115, 12, 10), skin, 0, -0.022, 0.104, 0, 0, 0, 1.25, 0.85, 1);
@@ -520,6 +529,37 @@ export function createHumanAvatar(initial: AvatarConfig, opts: Options = {}): Av
     buildHair(hairM);
   }
 
+  /** Cropped photo on the front of the head. Hair and the body stay procedural so walking and try-on are unchanged. */
+  function addFacePhoto(url: string) {
+    if (portraitTex && portraitTex.url !== url) {
+      portraitTex.tex.dispose();
+      portraitTex = null;
+    }
+    if (!portraitTex) {
+      const tex = new THREE.TextureLoader().load(url);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 8;
+      portraitTex = { url, tex };
+    }
+    const geo = new THREE.PlaneGeometry(0.2, 0.26, 10, 12);
+    const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      pos.setZ(i, -((x * x) / 0.055 + (y * y) / 0.16) * 0.045);
+    }
+    geo.computeVertexNormals();
+    const mat = track(new THREE.MeshBasicMaterial({
+      map: portraitTex.tex,
+      transparent: true,
+      depthWrite: true,
+      toneMapped: false,
+    }));
+    const mesh = add(head, geo, mat, 0, 0.012, 0.118);
+    mesh.castShadow = false;
+    mesh.renderOrder = 2;
+  }
+
   function buildHair(hairM: THREE.Material) {
     const style = cfg.hairStyle || 'short';
     const cap = (thetaLen: number, sx = 1.07, sy = 1.06, sz = 1.08, y = 0.006) =>
@@ -527,6 +567,11 @@ export function createHumanAvatar(initial: AvatarConfig, opts: Options = {}): Av
     // back-of-head cap opening at the face
     const shell = (thetaStart: number, thetaLen: number, s = 1.1, open = 1.15) =>
       add(head, new THREE.SphereGeometry(1, seg * 2, seg, Math.PI / 2 + open / 2, Math.PI * 2 - open, thetaStart, thetaLen), hairM, 0, 0, -0.002, 0, 0, 0, 0.074 * s, 0.113 * s, 0.096 * s);
+
+    if (cfg.portrait && style !== 'headscarf') {
+      shell(Math.PI * 0.2, Math.PI * 0.58, 1.14, 1.85);
+      return;
+    }
 
     switch (style) {
       case 'buzz':
@@ -764,6 +809,8 @@ export function createHumanAvatar(initial: AvatarConfig, opts: Options = {}): Av
     },
     dispose() {
       clearBuilt();
+      portraitTex?.tex.dispose();
+      portraitTex = null;
       root.removeFromParent();
     },
   };
@@ -806,5 +853,8 @@ export function normaliseAvatarConfig(c: Partial<AvatarConfig> | null | undefine
   if (!c) return base;
   const merged: AvatarConfig = { ...base, ...c, accessories: { ...base.accessories, ...(c.accessories || {}) }, version: 2 };
   delete merged.customPhotoUrl;
+  if (typeof merged.portrait !== 'string' || !merged.portrait.startsWith('data:image/') || merged.portrait.length > 400_000) {
+    delete merged.portrait;
+  }
   return merged;
 }

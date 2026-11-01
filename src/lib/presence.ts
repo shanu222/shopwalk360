@@ -80,9 +80,11 @@ export class PresenceClient {
   setLook(cfg: AvatarConfig | null) {
     if (!cfg) return;
     // never send photos, generated model links or names
-    const { glbUrl, photoUrl, avatarName, ...rest } = cfg as any;
+    const { glbUrl, photoUrl, portrait, customPhotoUrl, avatarName, ...rest } = cfg as any;
     void glbUrl;
     void photoUrl;
+    void portrait;
+    void customPhotoUrl;
     void avatarName;
     this.look = rest;
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ t: 'look', look: this.look }));

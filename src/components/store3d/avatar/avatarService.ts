@@ -2,15 +2,13 @@
  * Avatar persistence & photo processing.
  *
  * Privacy model
- *  - The original photograph is kept only in browser memory while the customer is in the Avatar Studio.
- *    It is never written to localStorage, never sent to our server's database, and is released when the
- *    customer removes it, leaves the studio, or finishes creating the avatar.
- *  - Local appearance estimation runs entirely in the browser (canvas pixel sampling). No face recognition,
- *    no identity verification, no biometric template is produced — only three colour values.
- *  - If the store connects an external photo-to-avatar service, the photo is forwarded once, in memory,
+ *  - The original photograph stays in browser memory only while the customer is in the Avatar Studio.
+ *    It is never written to localStorage or the database, and is released when they finish or remove it.
+ *  - A small cropped face (portrait) is kept on the avatar so the head shows that person. It can be
+ *    remembered on this device. The account stores colours and clothing only — the server rejects images.
+ *  - Colour matching runs in the browser. No face recognition or identity check is performed.
+ *  - If an external photo-to-avatar service is connected, the photo is forwarded once, in memory,
  *    only after a separate explicit consent, and is not stored by this server.
- *  - Only the avatar CONFIGURATION (colours, styles) is saved, and only with explicit consent:
- *    to the signed-in account (server) and/or this device (localStorage).
  */
 import { AvatarConfig } from '../../../types';
 import { normaliseAvatarConfig } from './AvatarModel';
@@ -52,23 +50,28 @@ export async function loadSavedAvatar(): Promise<{ saved: SavedAvatar | null; si
   return { saved: null, signedIn };
 }
 
-function stripForStorage(cfg: AvatarConfig): AvatarConfig {
+function forDevice(cfg: AvatarConfig): AvatarConfig {
   const c = { ...cfg };
   delete c.customPhotoUrl;
   return c;
 }
 
+function forAccount(cfg: AvatarConfig): AvatarConfig {
+  const c = forDevice(cfg);
+  delete c.portrait;
+  return c;
+}
+
 export async function saveAvatar(cfg: AvatarConfig, opts: { account: boolean; device: boolean }) {
-  const clean = stripForStorage(cfg);
   const results: string[] = [];
   if (opts.account) {
-    const r = await fetch('/api/avatar', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: clean, consent: true }) });
+    const r = await fetch('/api/avatar', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: forAccount(cfg), consent: true }) });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Could not save to your account');
     results.push('account');
   }
   try {
     if (opts.device) {
-      localStorage.setItem(DEVICE_KEY, JSON.stringify(clean));
+      localStorage.setItem(DEVICE_KEY, JSON.stringify(forDevice(cfg)));
       results.push('device');
     } else localStorage.removeItem(DEVICE_KEY);
   } catch {
@@ -187,14 +190,65 @@ export async function estimateAppearance(imageUrl: string, oval: FaceOval): Prom
   };
 }
 
-/** Downscale a photo before sending it to an external service (limits payload; strips EXIF metadata) */
-export async function photoToJpegBase64(imageUrl: string, max = 768) {
-  const img = await new Promise<HTMLImageElement>((res, rej) => {
+function loadImage(imageUrl: string) {
+  return new Promise<HTMLImageElement>((res, rej) => {
     const i = new Image();
     i.onload = () => res(i);
     i.onerror = rej;
     i.src = imageUrl;
   });
+}
+
+/**
+ * Crop the head from the face oval into a small feathered portrait.
+ * This is the image mapped onto the avatar. The original photo is not kept.
+ */
+export async function cropPortrait(imageUrl: string, oval: FaceOval): Promise<string> {
+  const img = await loadImage(imageUrl);
+  const W = img.width;
+  const H = img.height;
+  let sx = (oval.cx - oval.rx * 1.55) * W;
+  let sy = (oval.cy - oval.ry * 1.75) * H;
+  let sw = oval.rx * 3.1 * W;
+  let sh = oval.ry * 3.35 * H;
+  if (sx < 0) { sw += sx; sx = 0; }
+  if (sy < 0) { sh += sy; sy = 0; }
+  if (sx + sw > W) sw = W - sx;
+  if (sy + sh > H) sh = H - sy;
+  sw = Math.max(8, sw);
+  sh = Math.max(8, sh);
+
+  const paint = (size: number) => {
+    const c = document.createElement('canvas');
+    c.width = size;
+    c.height = Math.round(size * 1.22);
+    const ctx = c.getContext('2d')!;
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.translate(c.width / 2, c.height * 0.46);
+    ctx.scale(1, 1.18);
+    const g = ctx.createRadialGradient(0, 0, c.width * 0.2, 0, 0, c.width * 0.52);
+    g.addColorStop(0, 'rgba(0,0,0,1)');
+    g.addColorStop(0.72, 'rgba(0,0,0,0.98)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, c.width * 0.52, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    const webp = c.toDataURL('image/webp', 0.86);
+    return webp.startsWith('data:image/webp') ? webp : c.toDataURL('image/png');
+  };
+
+  let url = paint(320);
+  if (url.length > 220_000) url = paint(220);
+  return url;
+}
+
+/** Downscale a photo before sending it to an external service (limits payload; strips EXIF metadata) */
+export async function photoToJpegBase64(imageUrl: string, max = 768) {
+  const img = await loadImage(imageUrl);
   const s = Math.min(1, max / Math.max(img.width, img.height));
   const c = document.createElement('canvas');
   c.width = Math.round(img.width * s);

@@ -5,7 +5,7 @@ import {
 import { AvatarConfig, HairStyle } from '../../../types';
 import { AvatarPreview, AvatarPreviewHandle, PreviewAngle } from './AvatarPreview';
 import { READY_MADE_AVATARS, normaliseAvatarConfig } from './AvatarModel';
-import { estimateAppearance, FaceOval, requestProviderAvatar, saveAvatar } from './avatarService';
+import { cropPortrait, estimateAppearance, FaceOval, requestProviderAvatar, saveAvatar } from './avatarService';
 
 type Step = 'start' | 'photo' | 'presets' | 'generating' | 'preview' | 'customize';
 
@@ -197,13 +197,15 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
       setGenStatus([...log]);
     };
     try {
-      push('Reading skin, hair and clothing colours from your photo (on this device)…');
+      push('Reading your photo on this device…');
       const est = await estimateAppearance(photoUrl, oval);
+      const portrait = await cropPortrait(photoUrl, oval);
       let next: AvatarConfig = {
         ...cfg,
         skinTone: est.skinTone,
         hairColor: cfg.hairStyle === 'headscarf' ? cfg.hairColor : est.hairColor,
         outfitColor: est.topColor || cfg.outfitColor,
+        portrait,
         source: 'photo-estimate',
         glbUrl: undefined,
       };
@@ -219,16 +221,15 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
           push(`3D avatar service error: ${e.message}. Using the customisable avatar instead.`);
         }
       }
-      push('Building your avatar…');
+      push('Placing your face on the avatar…');
       setCfg(next);
       setEstimateNote(
         est.confidence === 'good'
-          ? 'Skin tone, hair colour and top colour were estimated from your photo. Adjust anything that doesn’t look right.'
-          : 'The photo made colour estimation difficult (lighting or framing). Please check and adjust the colours.',
+          ? 'Your face from the photo is on the avatar. Skin, hair and clothing colours were matched as well. Change anything you like.'
+          : 'Your face is on the avatar. The lighting made colour matching harder, so check skin, hair and clothing.',
       );
-      // the photo is no longer needed — release it immediately
       clearPhoto();
-      push('Your photo has been discarded.');
+      push('The original photo was removed. Your face stays on the avatar.');
       await new Promise((r) => setTimeout(r, 450));
       setStep('preview');
     } catch {
@@ -287,8 +288,11 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
             {angleBtn('side', 'Side')}
             {angleBtn('back', 'Back')}
           </div>
-          {cfg.source === 'provider' && (
-            <div className="absolute left-3 top-12 rounded-full bg-emerald-500/20 px-3 py-1 text-[11px] font-semibold text-emerald-200">Made from your photo</div>
+          {(cfg.portrait || cfg.source === 'provider') && (
+            <div className="absolute left-3 top-12 flex items-center gap-2 rounded-full border border-[#c8a96a]/40 bg-black/55 px-2.5 py-1 text-[11px] font-semibold text-[#ead6ab] backdrop-blur">
+              {cfg.portrait && <img src={cfg.portrait} alt="" className="h-5 w-5 rounded-full object-cover" />}
+              Your photo
+            </div>
           )}
         </div>
 
@@ -306,7 +310,7 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
                   <div className="rounded-xl bg-[#c8a96a]/15 p-3 text-[#c8a96a]"><Camera className="h-6 w-6" /></div>
                   <div className="flex-1">
                     <div className="font-semibold">Start from my photo</div>
-                    <div className="mt-1 text-xs leading-relaxed text-white/60">Upload or take a photo. We estimate your skin tone, hair and clothing colours on this device, then you fine-tune everything. Your photo is discarded straight after.</div>
+                    <div className="mt-1 text-xs leading-relaxed text-white/60">Upload or take a clear, front-facing photo. Your face is placed on the avatar, and skin, hair and clothing colours are matched on this device.</div>
                   </div>
                   <ArrowRight className="mt-1 h-5 w-5 text-white/40 transition group-hover:translate-x-1 group-hover:text-[#c8a96a]" />
                 </button>
@@ -321,7 +325,7 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
                 <div className="flex gap-3 rounded-2xl bg-white/[0.03] p-4 text-xs leading-relaxed text-white/60">
                   <ShieldCheck className="h-5 w-5 shrink-0 text-emerald-400" />
                   <div>
-                    <span className="font-semibold text-white/80">How your photo is handled.</span> It stays in your browser’s memory while you’re in the studio, is used only to estimate colours, and is never uploaded to our database. We do not perform facial recognition or identity checks. Only your avatar settings are saved — and only if you choose to save them.
+                    <span className="font-semibold text-white/80">How your photo is handled.</span> The original stays in this browser while you are in the studio, then it is removed. A cropped face stays on the avatar so you can walk the store. We do not run facial recognition. Your account saves colours and clothing only. “Remember on this device” also keeps the face.
                   </div>
                 </div>
               </div>
@@ -339,7 +343,7 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
 
                 <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-xs leading-relaxed text-white/75">
                   <input type="checkbox" checked={consentPhoto} onChange={(e) => setConsentPhoto(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#c8a96a]" />
-                  <span>I agree that my photo is processed <b>on this device</b> to estimate my skin tone, hair colour and clothing colour for my avatar. The photo will not be stored and is deleted when I finish or remove it.</span>
+                  <span>I agree that my photo is processed <b>on this device</b> to place my face on the avatar and match skin, hair and clothing colours. The original photo is removed when I finish. A cropped face can be remembered on this device if I choose to save it.</span>
                 </label>
 
                 {providerAvailable && (
@@ -424,6 +428,7 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
               <div className="space-y-5">
                 <button onClick={() => setStep('start')} className="flex items-center gap-1 text-xs font-semibold text-white/60 hover:text-white"><ChevronLeft className="h-4 w-4" /> Back</button>
                 <h2 className="text-2xl font-bold tracking-tight">Choose a ready-made avatar</h2>
+                <p className="text-sm text-white/60">Six finished looks. Pick one, then adjust clothing, height and colour in the preview room. No photo is used.</p>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   {READY_MADE_AVATARS.map((p) => {
                     const active = cfg.avatarName === p.config.avatarName && cfg.source === 'preset';
@@ -449,7 +454,7 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
                 <div>
                   <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#c8a96a]">Preview room</div>
                   <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">Ready to step inside?</h2>
-                  <p className="mt-2 text-sm text-white/60">Rotate your avatar, check the front and side views, and change anything you like.</p>
+                  <p className="mt-2 text-sm text-white/60">Turn the figure, check the front and side, then change clothes, height or colour before you walk in.</p>
                 </div>
                 {estimateNote && <div className="flex gap-2 rounded-xl bg-[#c8a96a]/10 p-3 text-xs leading-relaxed text-[#ead6ab]"><Info className="h-4 w-4 shrink-0" />{estimateNote}</div>}
                 <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
@@ -461,15 +466,19 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
                   <div className="font-semibold text-white/90">Save my avatar for next time (optional)</div>
                   <label className={`flex items-start gap-3 ${signedIn ? 'cursor-pointer' : 'opacity-50'}`}>
                     <input type="checkbox" disabled={!signedIn} checked={saveAccount && signedIn} onChange={(e) => setSaveAccount(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#c8a96a]" />
-                    <span>Save to my account {signedIn ? '' : '(sign in to enable)'} — stores avatar settings only, never a photo. You can delete it at any time.</span>
+                    <span>Save to my account {signedIn ? '' : '(sign in to enable)'} — colours and clothing only, never the photo. You can delete it at any time.</span>
                   </label>
                   <label className="flex cursor-pointer items-start gap-3">
                     <input type="checkbox" checked={saveDevice} onChange={(e) => setSaveDevice(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#c8a96a]" />
-                    <span>Remember on this device</span>
+                    <span>{cfg.portrait ? 'Remember on this device, including your photo face' : 'Remember on this device'}</span>
                   </label>
                   {saveError && <div className="text-rose-300">{saveError}</div>}
                 </div>
-                <p className="text-[11px] leading-relaxed text-white/45">Your avatar is an approximation for shopping and try-on. It is not an exact digital twin and does not reproduce your face.</p>
+                <p className="text-[11px] leading-relaxed text-white/45">
+                  {cfg.portrait
+                    ? 'The face is your photo. Body, clothes and accessories stay editable so try-on still works.'
+                    : 'Ready-made avatars use a styled figure. Start from a photo if you want your own face on the avatar.'}
+                </p>
               </div>
             )}
 
@@ -477,6 +486,19 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
               <div className="space-y-5">
                 <button onClick={() => setStep('preview')} className="flex items-center gap-1 text-xs font-semibold text-white/60 hover:text-white"><ChevronLeft className="h-4 w-4" /> Back to preview room</button>
                 <h2 className="text-2xl font-bold tracking-tight">Edit my avatar</h2>
+                {cfg.portrait && (
+                  <div className="flex items-center gap-3 rounded-2xl border border-[#c8a96a]/35 bg-[#c8a96a]/10 p-3">
+                    <img src={cfg.portrait} alt="" className="h-16 w-14 rounded-xl object-cover ring-1 ring-[#c8a96a]/50" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold">Face from your photo</div>
+                      <div className="mt-0.5 text-xs leading-relaxed text-white/65">Clothing, height and colours still apply. Hair shows around the photo from the side.</div>
+                    </div>
+                    <div className="flex shrink-0 flex-col gap-1.5">
+                      <button type="button" onClick={() => setStep('photo')} className="rounded-full bg-white/10 px-3 py-1.5 text-[11px] font-semibold hover:bg-white/15">New photo</button>
+                      <button type="button" onClick={() => setCfg((c) => { const n = { ...c }; delete n.portrait; return n; })} className="rounded-full px-3 py-1.5 text-[11px] font-semibold text-rose-200 hover:bg-white/10">Remove</button>
+                    </div>
+                  </div>
+                )}
                 <div className="flex gap-1 rounded-full bg-white/[0.05] p-1" role="tablist">
                   {([['body', 'Body', User], ['face', 'Face & hair', Sun], ['clothing', 'Clothing', Shirt], ['accessories', 'Accessories', Glasses]] as const).map(([id, label, Icon]) => (
                     <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={`flex flex-1 items-center justify-center gap-1.5 rounded-full px-2 py-2 text-[11px] font-semibold transition sm:text-xs ${tab === id ? 'bg-[#c8a96a] text-[#1a1712]' : 'text-white/70 hover:text-white'}`}>
