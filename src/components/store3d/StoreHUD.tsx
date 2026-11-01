@@ -237,7 +237,7 @@ export const StoreHUD: React.FC<Props> = (p) => {
       )}
 
       {/* LEFT TOOLBAR (desktop) */}
-      <div className="absolute left-4 top-[76px] hidden flex-col gap-1.5 md:flex" role="toolbar" aria-label="Store navigation">
+      <div className="absolute left-4 top-[76px] hidden max-h-[calc(100%-5.5rem)] flex-col gap-1.5 overflow-y-auto md:flex" role="toolbar" aria-label="Store navigation">
         {toolButtons.map((b) => (
           <button key={b.id} onClick={b.onClick} title={b.label} aria-label={b.label} className={`${glassBtn} !py-2 ${b.active ? 'border-[#c8a96a]/70 bg-[#2a2723]/95' : ''}`} aria-pressed={b.active}>
             <b.icon className="h-4 w-4 text-[#e2c88f]" /> <span className="hidden lg:inline">{b.label}</span>
@@ -247,7 +247,7 @@ export const StoreHUD: React.FC<Props> = (p) => {
 
       {/* walking status */}
       {(p.walking || p.route) && (
-        <div className="absolute left-1/2 top-[70px] flex -translate-x-1/2 items-center gap-2 sm:top-20">
+        <div className="absolute left-1/2 top-[70px] flex max-w-[calc(100%-5.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 sm:top-20 md:max-w-none">
           {p.walking && (
             <>
               <div className="pointer-events-auto rounded-full bg-[#1a1816]/85 px-3 py-1.5 text-[11px] font-semibold backdrop-blur">Walking you there…</div>
@@ -263,7 +263,7 @@ export const StoreHUD: React.FC<Props> = (p) => {
 
       {/* PROXIMITY CARD */}
       {p.nearest && !panel && (
-        <div className="absolute bottom-[208px] left-1/2 w-[min(94vw,460px)] -translate-x-1/2 md:bottom-6">
+        <div className="absolute bottom-[9.75rem] left-3 right-14 md:bottom-6 md:left-1/2 md:right-auto md:w-[min(94vw,460px)] md:-translate-x-1/2">
           <div className="pointer-events-auto flex items-center gap-3 rounded-3xl border border-white/15 bg-[#1a1816]/90 p-3 shadow-2xl backdrop-blur-xl">
             {nearestShelf?.primary_image ? (
               <img src={nearestShelf.primary_image} alt="" className="h-14 w-14 shrink-0 rounded-2xl bg-white/10 object-cover" onError={(e) => ((e.target as HTMLImageElement).style.visibility = 'hidden')} />
@@ -284,26 +284,25 @@ export const StoreHUD: React.FC<Props> = (p) => {
       )}
 
       {/* MINIMAP */}
-      <button onClick={() => setPanel('map')} aria-label="Open the store map" className="pointer-events-auto absolute bottom-[156px] right-3 hidden overflow-hidden rounded-2xl border border-white/15 bg-[#151311]/85 p-1.5 shadow-xl backdrop-blur-md sm:block md:bottom-4 md:right-4">
+      <button onClick={() => setPanel('map')} aria-label="Open the store map" className="pointer-events-auto absolute bottom-4 right-4 hidden overflow-hidden rounded-2xl border border-white/15 bg-[#151311]/85 p-1.5 shadow-xl backdrop-blur-md md:block">
         <StoreMap departments={p.departments} shelves={p.shelves} player={p.player} route={p.route} highlightShelfId={p.highlightShelfId} showLabels={false} className="h-48 w-[112px]" title="Mini map" />
       </button>
 
-      {/* MOBILE BOTTOM: joystick + tools */}
-      <div className="absolute bottom-0 left-0 right-0 md:hidden">
-        <div className="flex items-end justify-between px-3 pb-2">
-          {p.isTouch ? <Joystick onChange={p.onJoystick} /> : <div />}
-          <button onClick={() => setPanel('map')} aria-label="Open the store map" className="pointer-events-auto overflow-hidden rounded-2xl border border-white/15 bg-[#151311]/85 p-1 backdrop-blur-md">
-            <StoreMap departments={p.departments} shelves={p.shelves} player={p.player} route={p.route} highlightShelfId={p.highlightShelfId} showLabels={false} className="h-32 w-[74px]" title="Mini map" />
+      {/* MOBILE: tools are side icons so the walk stays on screen. Joystick stays bottom-left. */}
+      {p.isTouch && (
+        <div className="absolute bottom-3 left-3 md:hidden">
+          <Joystick onChange={p.onJoystick} />
+        </div>
+      )}
+      <button onClick={() => setPanel('map')} aria-label="Open the store map" className="pointer-events-auto absolute bottom-3 right-2 z-30 overflow-hidden rounded-2xl border border-white/15 bg-[#151311]/85 p-1 shadow-xl backdrop-blur-md md:hidden">
+        <StoreMap departments={p.departments} shelves={p.shelves} player={p.player} route={p.route} highlightShelfId={p.highlightShelfId} showLabels={false} className="h-24 w-[58px]" title="Mini map" />
+      </button>
+      <div className="absolute bottom-[9.5rem] right-2 top-[4.75rem] z-30 flex flex-col items-center gap-1.5 overflow-y-auto md:hidden" role="toolbar" aria-label="Store navigation">
+        {toolButtons.map((b) => (
+          <button key={b.id} onClick={b.onClick} title={b.label} aria-label={b.label} aria-pressed={b.active} className={`${glassBtn} !px-2.5 !py-2.5 ${b.active ? 'border-[#c8a96a]/70 bg-[#2a2723]/95' : ''}`}>
+            <b.icon className="h-4 w-4 text-[#e2c88f]" />
           </button>
-        </div>
-        <div className="pointer-events-auto flex justify-between gap-1 overflow-x-auto border-t border-white/10 bg-[#151311]/90 px-2 py-1.5 backdrop-blur-xl" role="toolbar" aria-label="Store navigation">
-          {toolButtons.map((b) => (
-            <button key={b.id} onClick={b.onClick} className={`flex min-w-[58px] flex-col items-center gap-0.5 rounded-xl px-1.5 py-1.5 text-[10px] font-semibold ${b.active ? 'bg-white/10 text-[#e2c88f]' : 'text-white/80'}`}>
-              <b.icon className="h-4 w-4" />
-              {b.label}
-            </button>
-          ))}
-        </div>
+        ))}
       </div>
 
       {!p.isTouch && !panel && !p.nearest && (
@@ -314,7 +313,7 @@ export const StoreHUD: React.FC<Props> = (p) => {
 
       {/* PANELS */}
       {panel && panel !== 'search' && (
-        <div className={`pointer-events-auto absolute inset-x-3 bottom-[118px] top-[70px] z-40 flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#171513]/95 shadow-2xl backdrop-blur-xl md:inset-x-auto md:bottom-6 md:left-[76px] md:top-20 lg:left-[170px] ${panel === 'map' ? 'md:right-6 lg:right-auto lg:w-[min(1100px,calc(100vw-200px))]' : 'md:w-[520px]'}`}>
+        <div className={`pointer-events-auto absolute bottom-[9.5rem] left-3 right-14 z-40 flex h-[42vh] flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#171513]/95 shadow-2xl backdrop-blur-xl md:inset-x-auto md:bottom-6 md:left-[76px] md:top-20 md:h-auto lg:left-[170px] ${panel === 'map' ? 'md:right-6 lg:right-auto lg:w-[min(1100px,calc(100vw-200px))]' : 'md:w-[520px]'}`}>
           <div className="flex items-center justify-between border-b border-white/10 px-5 py-3.5">
             <div className="text-sm font-bold">
               {panel === 'directory' && 'Department directory'}
