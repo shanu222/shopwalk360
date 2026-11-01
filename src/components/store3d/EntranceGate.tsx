@@ -20,6 +20,7 @@ export const EntranceGate: React.FC<Props> = ({ ready, progress, progressLabel, 
   return (
     <div className="pointer-events-none absolute inset-0 z-30 flex flex-col justify-end bg-gradient-to-t from-black/80 via-black/25 to-transparent p-4 sm:justify-center sm:bg-gradient-to-r sm:from-black/75 sm:via-black/35 sm:to-transparent sm:p-10">
       <div className="pointer-events-auto w-full max-w-md text-white">
+        <img src="/brand/logo-128.webp" alt="" width={72} height={72} className="mb-4 h-[72px] w-[72px] rounded-full shadow-[0_10px_28px_rgba(200,169,106,0.4)]" />
         <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[#e2c88f]">Welcome to</div>
         <h1 className="mt-2 text-4xl font-extrabold tracking-tight sm:text-5xl">ShopWalk 360</h1>
         <p className="mt-3 text-base font-medium text-white/85 sm:text-lg">Step Inside. Your Shopping Journey Begins Here.</p>

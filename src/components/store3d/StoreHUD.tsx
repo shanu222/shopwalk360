@@ -189,7 +189,7 @@ export const StoreHUD: React.FC<Props> = (p) => {
       {/* TOP BAR */}
       <div className="absolute left-0 right-0 top-0 flex items-start gap-2 p-3 sm:gap-3 sm:p-4">
         <div className="pointer-events-auto flex min-w-0 items-center gap-2.5 rounded-2xl border border-white/15 bg-[#1a1816]/80 px-3 py-2 shadow-lg backdrop-blur-md">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#c8a96a] text-[11px] font-black text-[#1a1712]">360</div>
+          <img src="/brand/logo-128.webp" alt="" width={32} height={32} className="h-8 w-8 shrink-0 rounded-full" />
           <div className="min-w-0">
             <div className="text-xs font-bold leading-tight">ShopWalk 360</div>
             <div className="max-w-[46vw] truncate text-[11px] leading-tight text-[#e2c88f] sm:max-w-[260px]" title={zoneLabel(p.zone, p.departments)}>{zoneLabel(p.zone, p.departments)}</div>
