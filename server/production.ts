@@ -3,7 +3,8 @@
  * store branding, and optional Cloudflare R2 storage for uploaded media.
  */
 import { db, hashPassword } from './db.js';
-import { S3Client, PutBucketCorsCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand, S3Client, PutBucketCorsCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import type { Readable } from 'stream';
 
 function setting(key: string, value: string) {
   db.prepare('INSERT INTO website_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
@@ -91,7 +92,9 @@ let r2: S3Client | null = null;
 export const r2Enabled = () =>
   !!(process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY && process.env.R2_BUCKET && process.env.R2_PUBLIC_URL);
 
-export async function putToR2(key: string, body: Buffer, contentType: string) {
+const SAFE_MEDIA_KEY = /^(video|image|model|audio|captions)\/[A-Za-z0-9._-]+$/;
+
+function r2Client() {
   if (!r2) {
     r2 = new S3Client({
       region: 'auto',
@@ -99,8 +102,26 @@ export async function putToR2(key: string, body: Buffer, contentType: string) {
       credentials: { accessKeyId: process.env.R2_ACCESS_KEY_ID!, secretAccessKey: process.env.R2_SECRET_ACCESS_KEY! },
     });
   }
-  await r2.send(new PutObjectCommand({ Bucket: process.env.R2_BUCKET!, Key: key, Body: body, ContentType: contentType, CacheControl: 'public, max-age=31536000, immutable' }));
+  return r2;
+}
+
+export async function putToR2(key: string, body: Buffer, contentType: string) {
+  await r2Client().send(new PutObjectCommand({ Bucket: process.env.R2_BUCKET!, Key: key, Body: body, ContentType: contentType, CacheControl: 'public, max-age=31536000, immutable' }));
   return `${process.env.R2_PUBLIC_URL!.replace(/\/$/, '')}/${key}`;
+}
+
+/** Read one stored file, honoring a browser Range request so a video can start immediately. */
+export async function openR2Object(key: string, range?: string) {
+  if (!r2Enabled() || !SAFE_MEDIA_KEY.test(key)) return null;
+  const out = await r2Client().send(new GetObjectCommand({ Bucket: process.env.R2_BUCKET!, Key: key, Range: range }));
+  const body = out.Body as Readable | undefined;
+  if (!body || typeof body.pipe !== 'function') return null;
+  return {
+    stream: body,
+    contentType: out.ContentType || 'application/octet-stream',
+    contentLength: out.ContentLength,
+    contentRange: out.ContentRange,
+  };
 }
 
 /** Let the website use R2 videos as textures on the 3D screens. */
@@ -110,14 +131,7 @@ export async function ensureR2Cors() {
     return;
   }
   try {
-    if (!r2) {
-      r2 = new S3Client({
-        region: 'auto',
-        endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-        credentials: { accessKeyId: process.env.R2_ACCESS_KEY_ID!, secretAccessKey: process.env.R2_SECRET_ACCESS_KEY! },
-      });
-    }
-    await r2.send(new PutBucketCorsCommand({
+    await r2Client().send(new PutBucketCorsCommand({
       Bucket: process.env.R2_BUCKET!,
       CORSConfiguration: {
         CORSRules: [{

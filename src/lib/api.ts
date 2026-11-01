@@ -27,6 +27,14 @@ export const setToken = (t: string | null) => {
 /** Resolve a stored media URL (absolute R2/Railway URLs pass through; legacy `/uploads/...` gets the API host) */
 export const mediaUrl = (u?: string | null) => (u && (u.startsWith('/uploads/') || u.startsWith('/music-library/')) ? `${API_BASE}${u}` : u || '');
 
+/** Same file, loaded through the API so a 3D screen is allowed to play a Cloudflare video. */
+export const screenMediaUrl = (u?: string | null) => {
+  const abs = mediaUrl(u);
+  const r2 = abs.match(/^https?:\/\/[^/]+\.r2\.dev\/([^?#]+)/i);
+  if (!r2) return abs;
+  return `${API_BASE}/api/media/${r2[1]}`;
+};
+
 const nativeFetch = window.fetch.bind(window);
 
 window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {

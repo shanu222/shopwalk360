@@ -12,7 +12,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { db } from './db.js';
-import { r2Enabled, putToR2 } from './production.js';
+import { openR2Object, r2Enabled, putToR2 } from './production.js';
 
 export const UPLOAD_ROOT = path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads'));
 
@@ -812,6 +812,33 @@ export function serveMusicLibrary(app: express.Express) {
     }),
   );
 }
+
+// The public R2 address does not send the headers a 3D screen needs, so videos are read through here.
+store3dRouter.get(/^\/media\/(.+)$/, async (req, res) => {
+  const key = decodeURIComponent(String(req.params[0] || ''));
+  const range = typeof req.headers.range === 'string' ? req.headers.range : undefined;
+  try {
+    const file = await openR2Object(key, range);
+    if (!file) return res.status(404).end();
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    if (file.contentLength != null) res.setHeader('Content-Length', String(file.contentLength));
+    if (file.contentRange) {
+      res.status(206);
+      res.setHeader('Content-Range', file.contentRange);
+    }
+    file.stream.on('error', () => res.destroy());
+    file.stream.pipe(res);
+  } catch (err: any) {
+    const code = err?.$metadata?.httpStatusCode;
+    if (code === 404 || err?.name === 'NoSuchKey') return res.status(404).end();
+    if (code === 416) return res.status(416).end();
+    if (!res.headersSent) res.status(502).end();
+  }
+});
 
 // ---------------- Admin: media uploads ----------------
 const UPLOAD_RULES: Record<string, { exts: string[]; max: number; check: (b: Buffer) => boolean }> = {

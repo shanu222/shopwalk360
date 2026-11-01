@@ -1,4 +1,4 @@
-import { mediaUrl } from '../../../lib/api';
+import { mediaUrl, screenMediaUrl } from '../../../lib/api';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { buildStore, BuiltStore, InteractiveTarget } from '../builder/storeBuilder';
@@ -1148,7 +1148,7 @@ export class StoreEngine {
             this.videos.delete(id);
             this.videoGaveUp.add(id);
           });
-          video.src = mediaUrl(s.videoUrl);
+          video.src = screenMediaUrl(s.videoUrl);
           video.load();
         }
         if (v.video.paused) v.video.play().catch(() => {});
