@@ -29,6 +29,7 @@ import { AdminFinancials } from './components/admin/AdminFinancials';
 import { AdminCoupons } from './components/admin/AdminCoupons';
 import { AdminSettings } from './components/admin/AdminSettings';
 const Admin3DStore = lazy(() => import('./components/admin/Admin3DStore'));
+const AdminMusic = lazy(() => import('./components/admin/AdminMusic'));
 
 // 3D Virtual Retail Store (loaded on demand so the classic store stays light)
 const ShopWalkExperience = lazy(() => import('./components/store3d/ShopWalkExperience'));
@@ -270,6 +271,11 @@ export default function App() {
               window.open('/', '_blank', 'noopener');
             }}
           />
+          </Suspense>
+        )}
+        {adminTab === 'music' && (
+          <Suspense fallback={<div className="p-6 text-sm text-slate-500">Loading…</div>}>
+            <AdminMusic />
           </Suspense>
         )}
         {adminTab === 'products' && <AdminProducts categories={categories} />}

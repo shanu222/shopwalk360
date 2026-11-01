@@ -117,6 +117,11 @@ export class StoreEngine {
   private cinematicT = 0;
   private lightTarget = LIGHT_TINT.neutral.clone();
 
+  // pick-from-shelf → basket animation
+  private pickAnim: { mesh: THREE.Mesh; t: number; from: THREE.Vector3; faceYaw: number | null } | null = null;
+  private basketShown = 0;
+  private basketTarget = 0;
+
   constructor(container: HTMLElement, quality: Quality, events: EngineEvents) {
     this.container = container;
     this.events = events;
@@ -269,12 +274,125 @@ export class StoreEngine {
   }
 
   setBasketCount(n: number) {
-    this.avatar?.setBasketCount(n);
+    this.basketTarget = n;
+    // while an item is travelling to the basket, it appears in the basket when it lands
+    if (!this.pickAnim || n < this.basketShown) {
+      this.basketShown = n;
+      this.avatar?.setBasketCount(n);
+    }
   }
 
-  playPick() {
-    this.avatar?.triggerPick();
+  /** The avatar takes the product from the shelf and drops it into the basket. */
+  playPick(opts: { shelfId?: string; productId?: string; imageUrl?: string } = {}) {
     storeAudio.pick();
+    const avatar = this.avatar;
+    if (!avatar) return;
+    this.finishPick();
+    const targets = this.store?.targets || [];
+    let target: InteractiveTarget | undefined = opts.shelfId ? targets.find((t) => t.id === opts.shelfId) : undefined;
+    if (!target && opts.productId) {
+      let best = Infinity;
+      for (const t of targets) {
+        if (t.shelf?.product_id !== opts.productId) continue;
+        const d = Math.hypot(t.stand.x - this.pos.x, t.stand.z - this.pos.z);
+        if (d < best) {
+          best = d;
+          target = t;
+        }
+      }
+    }
+    let from: THREE.Vector3;
+    let faceYaw: number | null = null;
+    if (target && Math.hypot(target.position.x - this.pos.x, target.position.z - this.pos.z) < 5) {
+      from = target.position.clone();
+      from.y = THREE.MathUtils.clamp(from.y, 0.6, 1.5);
+      faceYaw = Math.atan2(from.x - this.pos.x, from.z - this.pos.z);
+    } else {
+      // not standing at the shelf: take it from just in front of the shopper
+      from = new THREE.Vector3(this.pos.x + Math.sin(this.yaw) * 0.7, 1.15, this.pos.z + Math.cos(this.yaw) * 0.7);
+    }
+    avatar.triggerPick();
+
+    const side = new THREE.MeshStandardMaterial({ color: '#e9e3d6', roughness: 0.55 });
+    const front = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.5 });
+    if (opts.imageUrl) {
+      const loader = new THREE.TextureLoader();
+      loader.setCrossOrigin('anonymous');
+      loader.load(
+        mediaUrl(opts.imageUrl),
+        (tex) => {
+          tex.colorSpace = THREE.SRGBColorSpace;
+          front.map = tex;
+          front.needsUpdate = true;
+        },
+        undefined,
+        () => front.color.set('#c8a96a'),
+      );
+    } else front.color.set('#c8a96a');
+    const geo = new THREE.BoxGeometry(0.16, 0.2, 0.08);
+    const mesh = new THREE.Mesh(geo, [side, side, side, side, front, front]);
+    mesh.castShadow = true;
+    mesh.position.copy(from);
+    this.scene.add(mesh);
+    this.pickAnim = { mesh, t: 0, from, faceYaw };
+  }
+
+  private finishPick() {
+    const a = this.pickAnim;
+    if (!a) return;
+    this.scene.remove(a.mesh);
+    a.mesh.geometry.dispose();
+    (a.mesh.material as THREE.MeshStandardMaterial[]).forEach((m) => {
+      m.map?.dispose();
+      m.dispose();
+    });
+    this.pickAnim = null;
+    this.basketShown = this.basketTarget;
+    this.avatar?.setBasketCount(this.basketTarget);
+  }
+
+  private updatePick(dt: number) {
+    const a = this.pickAnim;
+    if (!a || !this.avatar) return;
+    a.t += dt;
+    if (a.faceYaw !== null && this.speedNow < 0.05 && !this.path.length) this.yaw = dampAngle(this.yaw, a.faceYaw, 7, dt);
+    const fp = this.cameraMode === 'first_person';
+    const hand = new THREE.Vector3();
+    const drop = new THREE.Vector3();
+    if (fp) {
+      // first person: bring it towards the bottom of the view
+      const dir = new THREE.Vector3();
+      this.camera.getWorldDirection(dir);
+      hand.copy(this.camera.position).addScaledVector(dir, 0.55).add(new THREE.Vector3(0, -0.22, 0));
+      drop.copy(this.camera.position).addScaledVector(dir, 0.35).add(new THREE.Vector3(0, -0.6, 0));
+    } else {
+      this.avatar.anchors.leftWrist.getWorldPosition(hand);
+      const b = this.avatar.anchors.basket;
+      if (b && b.visible !== false) {
+        b.getWorldPosition(drop);
+        drop.y -= 0.18;
+      } else drop.copy(hand).add(new THREE.Vector3(0, -0.25, 0));
+    }
+    const T1 = 0.5; // shelf → hand (matches the arm reach)
+    const T2 = 0.62; // brief hold
+    const T3 = 1.05; // hand → basket
+    const ease = (x: number) => x * x * (3 - 2 * x);
+    const m = a.mesh;
+    if (a.t < T1) {
+      const k = ease(a.t / T1);
+      m.position.lerpVectors(a.from, hand, k);
+      m.rotation.y = this.yaw + k * 0.4;
+    } else if (a.t < T2) {
+      m.position.copy(hand);
+    } else if (a.t < T3) {
+      const k = ease((a.t - T2) / (T3 - T2));
+      m.position.lerpVectors(hand, drop, k);
+      m.position.y += Math.sin(k * Math.PI) * 0.12;
+      m.scale.setScalar(1 - 0.35 * k);
+      m.rotation.y = this.yaw + 0.4 + k * 0.8;
+    } else {
+      this.finishPick();
+    }
   }
 
   getTargets() {
@@ -935,6 +1053,7 @@ export class StoreEngine {
         this.avatar.root.rotation.y = this.yaw;
         this.avatar.update(dt, { speed: this.speedNow, turnRate: this.turnRate });
       }
+      this.updatePick(dt);
       this.avatarShadow.position.set(this.pos.x, 0.015, this.pos.z);
       this.avatarShadow.visible = this.cameraMode === 'third_person';
       this.updateDoors(dt);

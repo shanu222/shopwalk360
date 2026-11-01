@@ -261,7 +261,7 @@ export const ProductViewer3D = forwardRef<ViewerHandle, ViewerProps>((props, ref
         </div>
       )}
       {glbState === 'loading' && <div className="absolute left-3 top-3 rounded-full bg-white/90 px-3 py-1 text-[11px]">Loading 3D model…</div>}
-      {glbState === 'error' && <div className="absolute left-3 top-3 rounded-full bg-amber-100 px-3 py-1 text-[11px] text-amber-900">Uploaded 3D model failed to load — showing preview model</div>}
+      {glbState === 'error' && <div className="absolute left-3 top-3 rounded-full bg-amber-100 px-3 py-1 text-[11px] text-amber-900">Showing a preview model</div>}
       <div className="absolute bottom-3 right-3 flex flex-col gap-1.5">
         {[
           { icon: ZoomIn, label: 'Zoom in', fn: () => zoom(0.75) },

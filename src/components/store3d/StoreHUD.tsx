@@ -374,7 +374,6 @@ export const StoreHUD: React.FC<Props> = (p) => {
                       <button key={q} onClick={() => p.onQuality(q)} aria-pressed={p.quality === q} className={`rounded-xl py-2.5 text-xs font-semibold capitalize ${p.quality === q ? 'bg-[#c8a96a] text-[#1a1712]' : 'bg-white/10'}`}>{q === 'low' ? 'Low (battery saver)' : q}</button>
                     ))}
                   </div>
-                  <p className="mt-2 text-[11px] text-white/45">The store lowers quality automatically if your device is struggling.</p>
                 </div>
                 <button onClick={p.onMute} className="flex w-full items-center justify-between rounded-xl bg-white/[0.05] px-4 py-3">
                   <span className="flex items-center gap-2">{p.muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />} Store sounds</span>

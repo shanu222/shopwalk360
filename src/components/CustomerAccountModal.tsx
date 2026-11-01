@@ -80,7 +80,7 @@ export const CustomerAccountModal: React.FC<CustomerAccountModalProps> = ({
         setActiveTab('orders');
       }
     } catch (err: any) {
-      setAuthError('Connection error with authentication server.');
+      setAuthError('We couldn’t reach the store. Please check your connection and try again.');
     } finally {
       setAuthLoading(false);
     }

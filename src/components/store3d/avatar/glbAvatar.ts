@@ -72,9 +72,11 @@ export async function createGlbAvatar(url: string, cfg: AvatarConfig, renderer?:
 
   let headBone: THREE.Object3D = model;
   let leftHand: THREE.Object3D = model;
+  let rightHand: THREE.Object3D = model;
   model.traverse((o) => {
     if (/head$/i.test(o.name) && headBone === model) headBone = o;
     if (/left.?hand$/i.test(o.name) && leftHand === model) leftHand = o;
+    if (/right.?hand$/i.test(o.name) && rightHand === model) rightHand = o;
   });
   const lips = new THREE.Object3D();
   headBone.add(lips);
@@ -104,7 +106,7 @@ export async function createGlbAvatar(url: string, cfg: AvatarConfig, renderer?:
     triggerPick() {},
     setLookTarget() {},
     pose() {},
-    anchors: { head: headBone, chest: model, leftWrist: leftHand, feet, lips },
+    anchors: { head: headBone, chest: model, leftWrist: leftHand, feet, lips, rightHand },
     setVisible(v: boolean) {
       model.visible = v;
     },

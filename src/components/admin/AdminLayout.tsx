@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   LayoutDashboard, Package, Truck, Sparkles, Building2, 
-  FileText, DollarSign, Tag, Settings, Store, Menu, X, ArrowLeft, Layers
+  FileText, DollarSign, Tag, Settings, Store, Menu, X, ArrowLeft, Layers, Music
 } from 'lucide-react';
 import { User } from '../../types';
 
@@ -27,6 +27,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   const menuItems = [
     { id: 'overview', label: 'Executive Dashboard', icon: LayoutDashboard },
     { id: '3dstore', label: '3D Store & Shelves (ShopWalk)', icon: Layers, badge: '3D' },
+    { id: 'music', label: 'Store Music', icon: Music },
     { id: 'products', label: 'Product Catalogue', icon: Package },
     { id: 'sourcing', label: 'Sourcing Pipeline & AI Score', icon: Sparkles, badge: 'Sourcing' },
     { id: 'suppliers', label: 'Suppliers & Comparison', icon: Building2 },

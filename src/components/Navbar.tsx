@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { MusicControl } from './MusicControl';
 import { ShoppingBag, Heart, Search, User as UserIcon, X, Menu, Box, LayoutGrid, Truck } from 'lucide-react';
 import { User, Category, CartItem } from '../types';
 
@@ -85,6 +86,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </form>
 
         <nav className="ml-auto flex items-center gap-1 lg:ml-2" aria-label="Account">
+          <MusicControl />
           <button onClick={onOpenTracking} className="hidden items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 xl:flex">
             <Truck className="h-4 w-4" /> Track order
           </button>

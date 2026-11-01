@@ -187,7 +187,7 @@ export const ProductExperiencePanel: React.FC<Props> = ({ shelf, avatar, integra
                       className="h-[340px] sm:h-[420px]"
                     />
                     <div className="text-[11px] text-slate-500">
-                      {p.model_3d_url ? '3D model supplied by the store.' : 'Illustrative 3D model generated from this product’s listed form and specifications — details may differ from the real item. Labels show the product’s own specifications.'}
+                      {p.model_3d_url ? '' : 'Illustrative 3D view — details may differ from the real item.'}
                     </div>
                     {demoInfo && (
                       <div className="rounded-2xl border border-slate-200 p-3">

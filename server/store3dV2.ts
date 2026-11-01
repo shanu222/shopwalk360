@@ -85,6 +85,16 @@ export function migrateStoreExperienceV2() {
       consent_at TEXT NOT NULL,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS store_music (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      artist TEXT NOT NULL DEFAULT '',
+      url TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   if (getSetting('store3d_layout_version') === LAYOUT_VERSION) return;
@@ -673,6 +683,47 @@ store3dRouter.delete('/admin/sample-products', requireAdmin, (_req, res) => {
   res.json({ success: true, removed: ids.length - ordered.length, unpublished: ordered.length });
 });
 
+// ---------------- Store music (admin managed, played for shoppers) ----------------
+const musicRow = (r: any) => ({ ...r, is_active: !!r.is_active });
+
+store3dRouter.get('/music', (_req: Request, res: Response) => {
+  const rows = db.prepare('SELECT id, title, artist, url FROM store_music WHERE is_active = 1 ORDER BY sort_order, created_at').all();
+  res.json({ tracks: rows });
+});
+
+store3dRouter.get('/admin/music', requireAdmin, (_req: Request, res: Response) => {
+  const rows = db.prepare('SELECT * FROM store_music ORDER BY sort_order, created_at').all();
+  res.json({ tracks: rows.map(musicRow) });
+});
+
+store3dRouter.post('/admin/music', requireAdmin, (req: Request, res: Response) => {
+  const title = String(req.body?.title || '').trim().slice(0, 120);
+  const artist = String(req.body?.artist || '').trim().slice(0, 120);
+  const url = String(req.body?.url || '').trim();
+  if (!title) return res.status(400).json({ error: 'Give the track a title.' });
+  if (!/^https?:\/\//i.test(url) && !url.startsWith('/uploads/')) return res.status(400).json({ error: 'Upload an audio file first.' });
+  const max = db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM store_music').get() as { m: number };
+  const id = `mus_${crypto.randomBytes(6).toString('hex')}`;
+  db.prepare('INSERT INTO store_music (id, title, artist, url, sort_order) VALUES (?, ?, ?, ?, ?)').run(id, title, artist, url, max.m + 1);
+  res.json({ success: true, track: musicRow(db.prepare('SELECT * FROM store_music WHERE id = ?').get(id)) });
+});
+
+store3dRouter.put('/admin/music/:id', requireAdmin, (req: Request, res: Response) => {
+  const row = db.prepare('SELECT * FROM store_music WHERE id = ?').get(req.params.id) as any;
+  if (!row) return res.status(404).json({ error: 'Track not found.' });
+  const title = req.body?.title !== undefined ? String(req.body.title).trim().slice(0, 120) || row.title : row.title;
+  const artist = req.body?.artist !== undefined ? String(req.body.artist).trim().slice(0, 120) : row.artist;
+  const active = req.body?.is_active !== undefined ? (req.body.is_active ? 1 : 0) : row.is_active;
+  const order = Number.isFinite(Number(req.body?.sort_order)) ? Number(req.body.sort_order) : row.sort_order;
+  db.prepare('UPDATE store_music SET title = ?, artist = ?, is_active = ?, sort_order = ? WHERE id = ?').run(title, artist, active, order, row.id);
+  res.json({ success: true, track: musicRow(db.prepare('SELECT * FROM store_music WHERE id = ?').get(row.id)) });
+});
+
+store3dRouter.delete('/admin/music/:id', requireAdmin, (req: Request, res: Response) => {
+  db.prepare('DELETE FROM store_music WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
 // ---------------- Admin: media uploads ----------------
 const UPLOAD_RULES: Record<string, { exts: string[]; max: number; check: (b: Buffer) => boolean }> = {
   video: {
@@ -684,6 +735,15 @@ const UPLOAD_RULES: Record<string, { exts: string[]; max: number; check: (b: Buf
     check: (b) => (b[0] === 0xff && b[1] === 0xd8) || b.slice(1, 4).toString('latin1') === 'PNG' || b.slice(8, 12).toString('latin1') === 'WEBP',
   },
   model: { exts: ['glb'], max: 60 * 1024 * 1024, check: (b) => b.slice(0, 4).toString('latin1') === 'glTF' },
+  audio: {
+    exts: ['mp3', 'm4a', 'aac', 'ogg', 'oga', 'wav'], max: 40 * 1024 * 1024,
+    check: (b) =>
+      b.slice(0, 3).toString('latin1') === 'ID3' || // mp3 with tags
+      (b[0] === 0xff && (b[1] & 0xe0) === 0xe0) || // mp3/aac frame sync
+      b.slice(4, 8).toString('latin1') === 'ftyp' || // m4a
+      b.slice(0, 4).toString('latin1') === 'OggS' ||
+      (b.slice(0, 4).toString('latin1') === 'RIFF' && b.slice(8, 12).toString('latin1') === 'WAVE'),
+  },
   captions: { exts: ['vtt'], max: 1024 * 1024, check: (b) => b.slice(0, 6).toString('utf8').replace(/^﻿/, '').startsWith('WEBVTT') },
 };
 
@@ -703,7 +763,7 @@ store3dRouter.post(
     if (body.length > rule.max) return res.status(413).json({ error: 'File too large.' });
     if (!rule.check(body)) return res.status(400).json({ error: 'File contents do not match the declared type.' });
     const name = `${Date.now()}_${crypto.randomBytes(5).toString('hex')}.${ext}`;
-    const types: Record<string, string> = { mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', glb: 'model/gltf-binary', vtt: 'text/vtt' };
+    const types: Record<string, string> = { mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', glb: 'model/gltf-binary', vtt: 'text/vtt', mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', ogg: 'audio/ogg', oga: 'audio/ogg', wav: 'audio/wav' };
     if (r2Enabled()) {
       // Cloudflare R2 (persistent, served from your R2 public URL / custom domain)
       putToR2(`${kind}/${name}`, body, types[ext] || 'application/octet-stream')

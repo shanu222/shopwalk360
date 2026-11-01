@@ -1,4 +1,5 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { music } from '../../../lib/music';
 import { Play, Maximize, Captions } from 'lucide-react';
 import { mediaUrl } from '../../../lib/api';
 
@@ -26,6 +27,7 @@ interface Props {
 export const DemoVideo: React.FC<Props> = ({ url, type, poster, captions, title }) => {
   const v = parseVideo(url, type);
   const [started, setStarted] = useState(false);
+  useEffect(() => () => music.duck(false), []);
   const box = useRef<HTMLDivElement>(null);
   const vid = useRef<HTMLVideoElement>(null);
   if (!v) return null;
@@ -49,6 +51,9 @@ export const DemoVideo: React.FC<Props> = ({ url, type, poster, captions, title 
             playsInline
             preload="metadata"
             crossOrigin="anonymous"
+            onPlay={() => music.duck(true)}
+            onPause={() => music.duck(false)}
+            onEnded={() => music.duck(false)}
             className="h-full w-full bg-black object-contain"
             aria-label={`Demonstration video: ${title}`}
           >

@@ -243,7 +243,10 @@ export default function ShopWalkExperience(props: Props) {
 
   const handleAdd = (p: Product, qty: number, variant?: string) => {
     onAddToCart(p, qty, variant);
-    engine.current?.playPick();
+    // close the panel so the shopper sees their avatar take the item into the basket
+    const shelfId = inspect?.id;
+    setInspect(null);
+    engine.current?.playPick({ shelfId, productId: p.id, imageUrl: p.primary_image });
     showToast(`Added to your basket: ${p.name.replace(/\s*\(Sample Listing\)/, '')}`);
   };
 
@@ -259,7 +262,7 @@ export default function ShopWalkExperience(props: Props) {
         <div className="max-w-md space-y-4 text-center">
           <MonitorX className="mx-auto h-10 w-10 text-[#c8a96a]" />
           <h2 className="text-xl font-bold">3D isn’t available on this device</h2>
-          <p className="text-sm text-white/70">Your browser or device doesn’t support WebGL, which the virtual store needs. Everything is still available in the regular online store.</p>
+          <p className="text-sm text-white/70">Your device can’t open the 3D store. Everything is available in the 2D store.</p>
           <button onClick={onSwitchTo2D} className="inline-flex items-center gap-2 rounded-xl bg-[#c8a96a] px-5 py-3 text-sm font-bold text-[#1a1712]"><Store className="h-4 w-4" /> Shop the online store</button>
         </div>
       </div>

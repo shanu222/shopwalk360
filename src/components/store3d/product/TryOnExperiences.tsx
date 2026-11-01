@@ -86,7 +86,7 @@ export const FashionTryOn: React.FC<Common & { photoTryOnAvailable: boolean }> =
       <div className="space-y-4">
         <div>
           <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Colour</div>
-          {cur?.hex ? <ColourPicker colours={colours} colour={colour} setColour={setColour} /> : <div className="text-xs text-amber-700">Colour swatches haven’t been configured for this product, so the preview colour is approximate.</div>}
+          {cur?.hex ? <ColourPicker colours={colours} colour={colour} setColour={setColour} /> : <div className="text-xs text-amber-700">Preview colour is approximate.</div>}
         </div>
         {size && <div className="text-xs text-slate-600">Selected size: <b>{size}</b>. The avatar isn’t a body scan, so size doesn’t change the preview — please check the size guide in the specifications.</div>}
         <WearButton wearing={wearing} onClick={() => onWearInStore(override(product, slot, cur, size))} />
@@ -136,7 +136,7 @@ const PhotoTryOn: React.FC<{ product: Product; colour: string; available: boolea
     return (
       <div className="flex gap-2 rounded-2xl border border-dashed border-slate-300 p-3 text-[11px] leading-relaxed text-slate-600">
         <Camera className="h-4 w-4 shrink-0" />
-        <span><b>Try it on my photo</b> needs an AI virtual try-on service, which this store hasn’t connected yet. The avatar preview above is available now.</span>
+        <span><b>Try it on my photo</b> on your own photo is coming soon. Use the avatar preview above.</span>
       </div>
     );
   }
@@ -199,8 +199,8 @@ export const AccessoryTryOn: React.FC<Common> = (props) => {
       <WearButton wearing={wearing} onClick={() => onWearInStore(override(product, slot, cur))} />
       <Disclaimer>
         {slot === 'watch'
-          ? 'Watch preview on your avatar’s wrist. Proportions are approximate. Camera-based wrist AR is not available yet (it needs a hand-tracking integration).'
-          : 'Eyewear preview on your avatar. Fit and lens tint are approximate. Camera-based face AR is not available yet.'}
+          ? 'Watch preview on your avatar’s wrist. Proportions are approximate.'
+          : 'Eyewear preview on your avatar. Fit and lens tint are approximate.'}
       </Disclaimer>
     </div>
   );
@@ -221,7 +221,7 @@ export const FootwearTryOn: React.FC<Common> = (props) => {
       <WearButton wearing={wearing} onClick={() => onWearInStore(override(product, 'shoes', cur, size))} />
       <div className="flex gap-2 rounded-xl bg-amber-50 p-3 text-[11px] leading-relaxed text-amber-900">
         <Footprints className="h-4 w-4 shrink-0" />
-        <span>We don’t predict your size — there is no validated sizing system connected. Please use the brand’s size guide. AR foot placement isn’t available yet (it needs a foot-tracking integration).</span>
+        <span>Please check the brand’s size guide to choose your size.</span>
       </div>
     </div>
   );
@@ -234,7 +234,7 @@ export const BeautyTryOn: React.FC<Common> = (props) => {
   const cfg = applyTryOns(avatar, [override(product, 'lips', cur)], colorMap);
   const shadesConfigured = colours.some((c) => c.hex);
   if (!shadesConfigured) {
-    return <Disclaimer>Shade colours haven’t been configured for this product, so a virtual shade preview isn’t offered (it could show the wrong colour).</Disclaimer>;
+    return <Disclaimer>A virtual shade preview isn’t available for this product.</Disclaimer>;
   }
   return (
     <div className="grid gap-5 md:grid-cols-2">
@@ -254,7 +254,7 @@ export const BeautyTryOn: React.FC<Common> = (props) => {
         <WearButton wearing={wearing} onClick={() => onWearInStore(override(product, 'lips', cur))} />
         {product.ingredients && <div className="text-xs text-slate-600"><b>Ingredients:</b> {product.ingredients}</div>}
         {product.usage_instructions && <div className="text-xs text-slate-600"><b>How to use:</b> {product.usage_instructions}</div>}
-        <Disclaimer>Colour preview only. Shades look different on screens and on real skin. Camera make-up try-on isn’t available yet (it needs a face-landmark integration).</Disclaimer>
+        <Disclaimer>Colour preview only. Shades look different on screens and on real skin.</Disclaimer>
       </div>
     </div>
   );

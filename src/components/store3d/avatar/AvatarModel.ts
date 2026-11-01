@@ -31,7 +31,7 @@ export interface AvatarRig {
   triggerPick(): void;
   setLookTarget(p: THREE.Vector3 | null): void;
   pose(name: 'display' | 'idle' | 'showWrist'): void;
-  anchors: { head: THREE.Object3D; chest: THREE.Object3D; leftWrist: THREE.Object3D; feet: THREE.Object3D; lips: THREE.Object3D };
+  anchors: { head: THREE.Object3D; chest: THREE.Object3D; leftWrist: THREE.Object3D; feet: THREE.Object3D; lips: THREE.Object3D; rightHand?: THREE.Object3D; basket?: THREE.Object3D };
   setVisible(v: boolean): void;
   dispose(): void;
 }
@@ -149,6 +149,8 @@ export function createHumanAvatar(initial: AvatarConfig, opts: Options = {}): Av
   let built: THREE.Object3D[] = [];
   let basketItems: THREE.Mesh[] = [];
   let basketCount = 0;
+  let basketAllowed = false;
+  let basketWanted = false;
   let eyeHeight = 1.62;
 
   const track = <T extends THREE.Material>(m: T) => {
@@ -446,7 +448,8 @@ export function createHumanAvatar(initial: AvatarConfig, opts: Options = {}): Av
       bk.add(m);
       basketItems.push(m);
     }
-    basket.visible = !!cfg.accessories?.shoppingBasket && !mannequin;
+    basketAllowed = !mannequin;
+    basketWanted = !!cfg.accessories?.shoppingBasket;
     applyBasketCount();
   }
 
@@ -589,6 +592,8 @@ export function createHumanAvatar(initial: AvatarConfig, opts: Options = {}): Av
   }
 
   function applyBasketCount() {
+    // the basket appears as soon as something is in it, even if the shopper didn't pick one
+    basket.visible = basketAllowed && (basketWanted || basketCount > 0);
     basketItems.forEach((m, i) => (m.visible = i < Math.min(basketCount, basketItems.length)));
   }
 
@@ -680,14 +685,15 @@ export function createHumanAvatar(initial: AvatarConfig, opts: Options = {}): Av
       lZ = 0.25;
     }
 
-    // pick-up reach (right arm), 1.1 s
+    // pick-up reach (left arm), 1.1 s
     if (pickT >= 0) {
       pickT += dt;
       const t = pickT / 1.1;
       const reach = t < 0.45 ? Math.sin((t / 0.45) * Math.PI / 2) : t < 1 ? Math.cos(((t - 0.45) / 0.55) * Math.PI / 2) : 0;
-      rShoulderX = THREE.MathUtils.lerp(rShoulderX, -1.15, reach);
-      rElbowX = THREE.MathUtils.lerp(rElbowX, -0.35, reach);
-      rZ = THREE.MathUtils.lerp(rZ, -0.05, reach);
+      // the free (left) hand reaches; the right hand keeps holding the basket
+      lShoulderX = THREE.MathUtils.lerp(lShoulderX, -1.15, reach);
+      lElbowX = THREE.MathUtils.lerp(lElbowX, -0.35, reach);
+      lZ = THREE.MathUtils.lerp(lZ, 0.05, reach);
       spine.rotation.x += 0.12 * reach;
       if (t >= 1) pickT = -1;
     }
@@ -752,7 +758,7 @@ export function createHumanAvatar(initial: AvatarConfig, opts: Options = {}): Av
       lookTarget = p ? p.clone() : null;
     },
     pose,
-    anchors: { head, chest, leftWrist: wristL, feet: feetAnchor, lips: lipsAnchor },
+    anchors: { head, chest, leftWrist: wristL, feet: feetAnchor, lips: lipsAnchor, rightHand: wristR, basket },
     setVisible(v: boolean) {
       body.visible = v;
     },

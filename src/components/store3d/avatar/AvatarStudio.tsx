@@ -288,7 +288,7 @@ export const AvatarStudio: React.FC<Props> = ({ open, initialConfig, initialStep
             {angleBtn('back', 'Back')}
           </div>
           {cfg.source === 'provider' && (
-            <div className="absolute left-3 top-12 rounded-full bg-emerald-500/20 px-3 py-1 text-[11px] font-semibold text-emerald-200">3D model from photo service</div>
+            <div className="absolute left-3 top-12 rounded-full bg-emerald-500/20 px-3 py-1 text-[11px] font-semibold text-emerald-200">Made from your photo</div>
           )}
         </div>
 
