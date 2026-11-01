@@ -519,7 +519,6 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
         root.add(c);
       });
     }
-    mountLed('directory', 'Departments', departments.map((d) => d.name).filter(Boolean), 2.2, 3.6, 0, 2.5, STORE.promenade.minZ + 0.2);
   }
 
   /* ================================= DEPARTMENT ROOMS ================================= */
