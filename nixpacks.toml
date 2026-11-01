@@ -1,0 +1,8 @@
+[variables]
+NIXPACKS_NODE_VERSION = "22"
+
+[phases.build]
+cmds = ["echo 'API only - no frontend build on Railway'"]
+
+[start]
+cmd = "npm start"

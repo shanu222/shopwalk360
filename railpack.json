@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "packages": {
+    "node": "22"
+  },
+  "buildAptPackages": ["...", "python3", "make", "g++"],
+  "deploy": {
+    "startCommand": "npm start"
+  }
+}
