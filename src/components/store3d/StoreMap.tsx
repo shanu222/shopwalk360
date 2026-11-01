@@ -6,6 +6,8 @@ interface Props {
   departments: StoreDepartment[];
   shelves?: StoreShelf[];
   player?: { x: number; z: number; yaw: number } | null;
+  /** other real shoppers currently in the store */
+  others?: { id: string; x: number; z: number }[];
   route?: { x: number; z: number }[] | null;
   highlightShelfId?: string | null;
   highlightSlot?: number | null;
@@ -45,7 +47,7 @@ function wrap(name: string, width: number, max: number): string[] {
 
 /** Top-down floor plan. Portrait: entrance at the bottom. Landscape: entrance on the left. */
 export const StoreMap: React.FC<Props> = ({
-  departments, shelves = [], player, route, highlightShelfId, highlightSlot, showLabels = true, showFixtures = false, includePlaza = false,
+  departments, shelves = [], player, others = [], route, highlightShelfId, highlightSlot, showLabels = true, showFixtures = false, includePlaza = false,
   landscape = false, onPickDept, onPickPoint, onPickShelf, onHoverDept, className, title = 'Store map',
 }) => {
   const [hover, setHover] = useState<number | null>(null);
@@ -211,6 +213,11 @@ export const StoreMap: React.FC<Props> = ({
             <circle cx={route[route.length - 1].x} cy={route[route.length - 1].z} r={0.8} fill="#f3dfb4" stroke="#1a1712" strokeWidth={0.2} />
           </g>
         )}
+
+        {/* other shoppers */}
+        {others.map((o) => (
+          <circle key={o.id} cx={o.x} cy={o.z} r={0.75} fill="#60a5fa" stroke="#0b0b0b" strokeWidth={0.15} pointerEvents="none" />
+        ))}
 
         {/* you are here (marker) */}
         {player && (

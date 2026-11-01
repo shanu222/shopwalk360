@@ -32,6 +32,7 @@ import { AdminCoupons } from './components/admin/AdminCoupons';
 import { AdminSettings } from './components/admin/AdminSettings';
 const Admin3DStore = lazy(() => import('./components/admin/Admin3DStore'));
 const AdminMusic = lazy(() => import('./components/admin/AdminMusic'));
+const AdminCustomers = lazy(() => import('./components/admin/AdminCustomers'));
 
 // 3D Virtual Retail Store (loaded on demand so the classic store stays light)
 const ShopWalkExperience = lazy(() => import('./components/store3d/ShopWalkExperience'));
@@ -311,6 +312,11 @@ export default function App() {
         )}
         {adminTab === 'inventory' && <AdminInventory />}
         {adminTab === 'orders' && <AdminOrders />}
+        {adminTab === 'customers' && (
+          <Suspense fallback={<div className="p-6 text-sm text-slate-500">Loading…</div>}>
+            <AdminCustomers />
+          </Suspense>
+        )}
         {adminTab === 'financials' && <AdminFinancials />}
         {adminTab === 'coupons' && <AdminCoupons />}
         {adminTab === 'settings' && (

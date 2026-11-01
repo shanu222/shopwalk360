@@ -733,19 +733,40 @@ const LIBRARY_TRACKS = [
   { file: 'morning-atrium.mp3', title: 'Morning Atrium' },
   { file: 'gallery-walk.mp3', title: 'Gallery Walk' },
   { file: 'velvet-evening.mp3', title: 'Velvet Evening' },
+  { file: 'lantern-light.mp3', title: 'Lantern Light' },
+  { file: 'window-shopping.mp3', title: 'Window Shopping' },
+  { file: 'cloud-atrium.mp3', title: 'Cloud Atrium' },
+  { file: 'afterglow.mp3', title: 'Afterglow' },
+  { file: 'silk-breeze.mp3', title: 'Silk Breeze' },
+  { file: 'citrus-morning.mp3', title: 'Citrus Morning' },
+  { file: 'marble-hall.mp3', title: 'Marble Hall' },
+  { file: 'rooftop-garden.mp3', title: 'Rooftop Garden' },
+  { file: 'quiet-boutique.mp3', title: 'Quiet Boutique' },
+  { file: 'evening-promenade.mp3', title: 'Evening Promenade' },
 ];
 
+/** Adds library tracks that were never added before (so tracks an admin deleted stay deleted). */
 export function seedMusicLibrary() {
-  if (getSetting('music_library_seeded') === '1') return;
+  let done: string[] = [];
+  const flag = getSetting('music_library_seeded');
+  if (flag === '1') done = LIBRARY_TRACKS.slice(0, 4).map((t) => t.file); // first release
+  else if (flag) {
+    try {
+      done = JSON.parse(flag);
+    } catch {
+      done = [];
+    }
+  }
   const base = (process.env.PUBLIC_API_URL || '').replace(/\/$/, '');
   const max = db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM store_music').get() as { m: number };
-  const ins = db.prepare('INSERT INTO store_music (id, title, artist, url, sort_order) VALUES (?, ?, ?, ?, ?)');
+  const ins = db.prepare('INSERT OR IGNORE INTO store_music (id, title, artist, url, sort_order) VALUES (?, ?, ?, ?, ?)');
   let order = max.m;
   LIBRARY_TRACKS.forEach((t) => {
-    if (!fs.existsSync(path.join(MUSIC_LIBRARY_DIR, t.file))) return;
+    if (done.includes(t.file) || !fs.existsSync(path.join(MUSIC_LIBRARY_DIR, t.file))) return;
     ins.run(`mus_lib_${t.file.replace(/\W+/g, '_')}`, t.title, 'ShopWalk 360 Studio', `${base}/music-library/${t.file}`, ++order);
+    done.push(t.file);
   });
-  setSetting('music_library_seeded', '1');
+  setSetting('music_library_seeded', JSON.stringify(done));
 }
 
 export function serveMusicLibrary(app: express.Express) {

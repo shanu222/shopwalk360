@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   LayoutDashboard, Package, Truck, Sparkles, Building2, 
-  FileText, DollarSign, Tag, Settings, Store, Menu, X, ArrowLeft, Layers, Music
+  FileText, DollarSign, Tag, Settings, Store, Menu, X, ArrowLeft, Layers, Music, Users
 } from 'lucide-react';
 import { User } from '../../types';
 
@@ -34,6 +34,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
     { id: 'procurement', label: 'Purchase Orders (POs)', icon: FileText },
     { id: 'inventory', label: 'Inventory Ledger & Movements', icon: Truck },
     { id: 'orders', label: 'Orders & Fulfillment', icon: Truck },
+    { id: 'customers', label: 'Customers', icon: Users },
     { id: 'financials', label: 'Landed Costs & P&L', icon: DollarSign, badge: 'Finance' },
     { id: 'coupons', label: 'Promotions & Coupons', icon: Tag },
     { id: 'settings', label: 'Store & Courier Settings', icon: Settings },

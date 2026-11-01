@@ -6,6 +6,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { initDatabase } from './server/db.js';
 import { apiRouter, getActiveUserId } from './server/routes.js';
+import { attachPresence } from './server/presence.js';
 import { store3dRouter, migrateStoreExperienceV2, bindSession, serveUploads, seedMusicLibrary, serveMusicLibrary } from './server/store3dV2.js';
 import { authMiddleware } from './server/auth.js';
 import { bootstrapAdmin, removeDemoData } from './server/production.js';
@@ -26,13 +27,11 @@ async function startServer() {
 
   // The storefront runs on Vercel; allow only the configured origins (comma separated)
   const origins = (process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const originAllowed = (origin?: string) =>
+    !origin || origins.length === 0 || origins.includes(origin) || origins.some((o) => o.startsWith('*.') && origin.endsWith(o.slice(1)));
   app.use(
     cors({
-      origin: (origin, cb) => {
-        if (!origin || origins.length === 0 || origins.includes(origin)) return cb(null, true);
-        if (origins.some((o) => o.startsWith('*.') && origin.endsWith(o.slice(1)))) return cb(null, true);
-        cb(null, false);
-      },
+      origin: (origin, cb) => cb(null, originAllowed(origin)),
       allowedHeaders: ['Content-Type', 'Authorization'],
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       maxAge: 86400,
@@ -65,7 +64,8 @@ async function startServer() {
     app.get('/', (_req, res) => res.json({ service: 'ShopWalk 360 API', ok: true }));
   }
 
-  app.listen(PORT, '0.0.0.0', () => console.log(`ShopWalk 360 API listening on :${PORT}`));
+  const server = app.listen(PORT, '0.0.0.0', () => console.log(`ShopWalk 360 API listening on :${PORT}`));
+  attachPresence(server, originAllowed);
 }
 
 startServer().catch((err) => {

@@ -18,9 +18,35 @@ export const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
+/** scrypt with a random per-user salt: "scrypt$<salt>$<hash>" */
 export function hashPassword(password: string): string {
-  const salt = 'auracommerce_salt_2026';
-  return crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1 }).toString('hex');
+  return `scrypt$${salt}$${hash}`;
+}
+
+function legacyHash(password: string): string {
+  return crypto.pbkdf2Sync(password, 'auracommerce_salt_2026', 1000, 64, 'sha512').toString('hex');
+}
+
+/** Constant-time check; also accepts hashes created by the previous scheme. */
+export function verifyPassword(password: string, stored: string | null | undefined): boolean {
+  if (!stored) return false;
+  let candidate: Buffer;
+  let expected: Buffer;
+  if (stored.startsWith('scrypt$')) {
+    const [, salt, hash] = stored.split('$');
+    expected = Buffer.from(hash || '', 'hex');
+    candidate = crypto.scryptSync(password, salt, expected.length || 64, { N: 16384, r: 8, p: 1 });
+  } else {
+    expected = Buffer.from(stored, 'hex');
+    candidate = Buffer.from(legacyHash(password), 'hex');
+  }
+  return candidate.length === expected.length && crypto.timingSafeEqual(candidate, expected);
+}
+
+export function isLegacyHash(stored: string | null | undefined) {
+  return !!stored && !stored.startsWith('scrypt$');
 }
 
 export function initDatabase() {

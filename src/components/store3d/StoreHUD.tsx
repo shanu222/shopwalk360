@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
   ShoppingBag, Search, Map as MapIcon, Navigation, Camera, User, LayoutGrid, Zap, Settings, HelpCircle, X, ArrowRight, Footprints, Route,
-  Volume2, VolumeX, Store, Shirt, MapPin, ChevronRight, Eye,
+  Volume2, VolumeX, Store, Shirt, MapPin, ChevronRight, Eye, Users, EyeOff,
 } from 'lucide-react';
 import { StoreDepartment, StoreShelf, TryOnOverride } from '../../types';
 import { InteractiveTarget } from './builder/storeBuilder';
@@ -26,6 +26,10 @@ interface Props {
   zone: Zone | null;
   nearest: InteractiveTarget | null;
   player: { x: number; z: number; yaw: number } | null;
+  others: { id: string; x: number; z: number }[];
+  othersCount: number;
+  showOthers: boolean;
+  onToggleOthers: () => void;
   route: { x: number; z: number }[] | null;
   highlightShelfId: string | null;
   tryOns: TryOnOverride[];
@@ -193,6 +197,18 @@ export const StoreHUD: React.FC<Props> = (p) => {
         <div className="hidden flex-1 md:block md:max-w-md lg:max-w-lg">{SearchBox}</div>
         <div className="ml-auto flex items-center gap-2">
           <button className={`${glassBtn} md:hidden`} aria-label="Search" onClick={() => setPanel(panel === 'search' ? null : 'search')}><Search className="h-4 w-4" /></button>
+          {p.othersCount > 0 && (
+            <button
+              onClick={p.onToggleOthers}
+              className={`${glassBtn} gap-1.5 !w-auto px-3 text-xs font-semibold`}
+              aria-pressed={p.showOthers}
+              title={p.showOthers ? 'Hide other shoppers' : 'Show other shoppers'}
+            >
+              {p.showOthers ? <Users className="h-4 w-4 text-[#e2c88f]" /> : <EyeOff className="h-4 w-4" />}
+              <span className="hidden sm:inline">{p.othersCount} {p.othersCount === 1 ? 'shopper' : 'shoppers'} here</span>
+              <span className="sm:hidden">{p.othersCount}</span>
+            </button>
+          )}
           <button onClick={p.onOpenCart} className="pointer-events-auto relative flex items-center gap-2 rounded-2xl bg-[#c8a96a] px-3.5 py-2.5 text-xs font-bold text-[#1a1712] shadow-lg hover:bg-[#d6b97c]" aria-label={`Basket, ${p.cartCount} items`}>
             <ShoppingBag className="h-4 w-4" />
             <span className="hidden sm:inline">Basket</span>
@@ -336,6 +352,7 @@ export const StoreHUD: React.FC<Props> = (p) => {
                       departments={p.departments}
                       shelves={p.shelves}
                       player={p.player}
+                      others={p.others}
                       route={p.route}
                       highlightShelfId={p.highlightShelfId}
                       highlightSlot={mapHover}
@@ -350,6 +367,7 @@ export const StoreHUD: React.FC<Props> = (p) => {
                     <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-green-500" /> You are here</span>
                     <span className="flex items-center gap-1.5"><span className="h-0 w-4 border-t-2 border-dashed border-[#f3dfb4]" /> Your route</span>
                     <span className="flex items-center gap-1.5"><span className="h-2.5 w-1 rounded bg-[#f6f1e7]" /> Doorway</span>
+                    {p.others.length > 0 && <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-blue-400" /> Other shoppers</span>}
                     <span className="hidden sm:inline">Tap a department or any open floor point to walk there</span>
                   </div>
                 </div>
@@ -420,6 +438,10 @@ export const StoreHUD: React.FC<Props> = (p) => {
                     ))}
                   </div>
                 </div>
+                <button onClick={p.onToggleOthers} className="flex w-full items-center justify-between rounded-xl bg-white/[0.05] px-4 py-3">
+                  <span className="flex items-center gap-2"><Users className="h-4 w-4" /> Show other shoppers</span>
+                  <span className="text-xs text-white/60">{p.showOthers ? 'On' : 'Off'}</span>
+                </button>
                 <button onClick={p.onMute} className="flex w-full items-center justify-between rounded-xl bg-white/[0.05] px-4 py-3">
                   <span className="flex items-center gap-2">{p.muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />} Store sounds</span>
                   <span className="text-xs text-white/60">{p.muted ? 'Off' : 'On'}</span>

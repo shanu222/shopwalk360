@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { buildStore, BuiltStore, InteractiveTarget } from '../builder/storeBuilder';
 import { skyTexture, setMaxAnisotropy, contactShadowTexture } from '../builder/materials';
-import { createHumanAvatar, AvatarRig } from '../avatar/AvatarModel';
+import { createHumanAvatar, AvatarRig, normaliseAvatarConfig } from '../avatar/AvatarModel';
 import { createGlbAvatar, getGLTFLoader } from '../avatar/glbAvatar';
 import { NavGrid } from '../nav/pathfinding';
 import { STORE, Rect, zoneAt, Zone, roomForSlot } from '../layout/storeLayout';
@@ -116,6 +116,78 @@ export class StoreEngine {
   private touchPoints = new Map<number, { x: number; y: number }>();
   private cinematicT = 0;
   private lightTarget = LIGHT_TINT.neutral.clone();
+
+  // other real shoppers in the store (from the live presence channel)
+  private remotes = new Map<string, { rig: AvatarRig; tx: number; tz: number; tyaw: number; ts: number; pos: THREE.Vector3; yaw: number; key: string }>();
+  private showRemotes = true;
+
+  setShowOthers(v: boolean) {
+    this.showRemotes = v;
+    this.remotes.forEach((r) => (r.rig.root.visible = v));
+  }
+
+  setRemoteShoppers(list: { id: string; x: number; z: number; yaw: number; s: number; look: any }[]) {
+    if (!this.store) return;
+    // nearest 24 only, to keep the frame rate smooth
+    const sorted = [...list].sort((a, b) => Math.hypot(a.x - this.pos.x, a.z - this.pos.z) - Math.hypot(b.x - this.pos.x, b.z - this.pos.z)).slice(0, 24);
+    const keep = new Set(sorted.map((o) => o.id));
+    this.remotes.forEach((r, id) => {
+      if (!keep.has(id)) {
+        this.scene.remove(r.rig.root);
+        r.rig.dispose();
+        this.remotes.delete(id);
+      }
+    });
+    for (const o of sorted) {
+      const key = JSON.stringify(o.look || {});
+      let r = this.remotes.get(o.id);
+      if (r && r.key !== key) {
+        this.scene.remove(r.rig.root);
+        r.rig.dispose();
+        this.remotes.delete(o.id);
+        r = undefined;
+      }
+      if (!r) {
+        const cfg = normaliseAvatarConfig({ ...(o.look || {}), accessories: { ...(o.look?.accessories || {}), shoppingBasket: true }, glbUrl: undefined } as Partial<AvatarConfig>);
+        const rig = createHumanAvatar(cfg, { lowDetail: true });
+        rig.root.position.set(o.x, 0, o.z);
+        rig.root.rotation.y = o.yaw;
+        rig.root.visible = this.showRemotes;
+        this.scene.add(rig.root);
+        r = { rig, tx: o.x, tz: o.z, tyaw: o.yaw, ts: o.s, pos: new THREE.Vector3(o.x, 0, o.z), yaw: o.yaw, key };
+        this.remotes.set(o.id, r);
+      }
+      r.tx = o.x;
+      r.tz = o.z;
+      r.tyaw = o.yaw;
+      r.ts = o.s;
+    }
+  }
+
+  private updateRemotes(dt: number) {
+    this.remotes.forEach((r) => {
+      const px = r.pos.x;
+      const pz = r.pos.z;
+      const k = 1 - Math.exp(-dt * 8);
+      // snap if they teleported (e.g. "go now")
+      if (Math.hypot(r.tx - px, r.tz - pz) > 6) r.pos.set(r.tx, 0, r.tz);
+      else {
+        r.pos.x += (r.tx - px) * k;
+        r.pos.z += (r.tz - pz) * k;
+      }
+      const prevYaw = r.yaw;
+      r.yaw = dampAngle(r.yaw, r.tyaw, 8, dt);
+      const speed = dt > 0 ? Math.hypot(r.pos.x - px, r.pos.z - pz) / dt : 0;
+      r.rig.root.position.copy(r.pos);
+      r.rig.root.rotation.y = r.yaw;
+      if (r.rig.root.visible) r.rig.update(dt, { speed, turnRate: dt > 0 ? angleDiff(r.yaw, prevYaw) / dt : 0 });
+    });
+  }
+
+  /** current state for sharing with other shoppers */
+  getPlayerState() {
+    return { x: this.pos.x, z: this.pos.z, yaw: this.yaw, speed: this.speedNow, inside: this.state === 'inside' };
+  }
 
   // pick-from-shelf → basket animation
   private pickAnim: { mesh: THREE.Mesh; t: number; from: THREE.Vector3; faceYaw: number | null } | null = null;
@@ -1136,6 +1208,7 @@ export class StoreEngine {
         this.avatar.update(dt, { speed: this.speedNow, turnRate: this.turnRate });
       }
       this.updatePick(dt);
+      this.updateRemotes(dt);
       if (!this.reducedMotion) {
         const tt = this.clock.elapsedTime;
         this.store.animate(tt, dt);
@@ -1179,6 +1252,8 @@ export class StoreEngine {
 
   dispose() {
     this.disposed = true;
+    this.remotes.forEach((r) => r.rig.dispose());
+    this.remotes.clear();
     cancelAnimationFrame(this.raf);
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);

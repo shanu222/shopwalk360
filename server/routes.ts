@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { db, hashPassword } from './db.js';
+import { db, hashPassword, verifyPassword, isLegacyHash } from './db.js';
+import { presenceStats } from './presence.js';
 import crypto from 'crypto';
 import { currentUserId, issueToken } from './auth.js';
 
@@ -27,14 +28,17 @@ apiRouter.post('/auth/login', (req: Request, res: Response) => {
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
-    const hash = hashPassword(password);
     const user = db.prepare('SELECT id, email, full_name, phone, role, password_hash FROM users WHERE LOWER(email) = LOWER(?)').get(email) as any;
 
-    if (!user || user.password_hash !== hash) {
+    if (!user || !verifyPassword(String(password), user.password_hash)) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
-    if (user.role === 'admin' && user.password_hash === hashPassword('Admin@123456') && process.env.NODE_ENV === 'production') {
+    if (user.role === 'admin' && password === 'Admin@123456' && process.env.NODE_ENV === 'production') {
       return res.status(403).json({ error: 'The default admin password is disabled in production. Set ADMIN_EMAIL and ADMIN_PASSWORD on the server.' });
+    }
+    // upgrade older password hashes to the per-user salted scheme
+    if (isLegacyHash(user.password_hash)) {
+      db.prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?").run(hashPassword(String(password)), user.id);
     }
 
     res.json({
@@ -57,6 +61,9 @@ apiRouter.post('/auth/register', (req: Request, res: Response) => {
     const { email, password, full_name, phone } = req.body;
     if (!email || !password || !full_name) {
       return res.status(400).json({ error: 'Name, email, and password are required' });
+    }
+    if (String(password).length < 8) {
+      return res.status(400).json({ error: 'Please choose a password with at least 8 characters' });
     }
 
     const existing = db.prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?)').get(email);
@@ -762,6 +769,18 @@ apiRouter.get('/admin/overview', requireAdmin, (req: Request, res: Response) => 
 });
 
 // 2. Product Management CRUD
+// Registered customer accounts (stored in the store database) and live visitor counts
+apiRouter.get('/admin/customers', requireAdmin, (_req: Request, res: Response) => {
+  const customers = db.prepare(`
+    SELECT u.id, u.full_name, u.email, u.phone, u.created_at,
+      (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id OR LOWER(o.customer_email) = LOWER(u.email)) AS order_count,
+      (SELECT COALESCE(SUM(o.total_amount), 0) FROM orders o WHERE (o.user_id = u.id OR LOWER(o.customer_email) = LOWER(u.email)) AND o.status != 'Cancelled') AS total_spent,
+      (SELECT MAX(o.created_at) FROM orders o WHERE o.user_id = u.id OR LOWER(o.customer_email) = LOWER(u.email)) AS last_order_at
+    FROM users u WHERE u.role = 'customer' ORDER BY u.created_at DESC
+  `).all();
+  res.json({ customers, live: presenceStats() });
+});
+
 apiRouter.get('/admin/products', requireAdmin, (req: Request, res: Response) => {
   try {
     const products = db.prepare(`

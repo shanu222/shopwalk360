@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PresenceClient, RemoteShopper } from '../../lib/presence';
 import { MonitorX, Store, RefreshCw } from 'lucide-react';
 import { AvatarConfig, CartItem, ExperienceIntegrations, Product, StoreLayoutV2, StoreShelf, TryOnOverride } from '../../types';
 import { StoreEngine, Quality, CameraMode, detectWebGL, suggestQuality } from './engine/StoreEngine';
@@ -60,6 +61,16 @@ export default function ShopWalkExperience(props: Props) {
   const [nearest, setNearest] = useState<InteractiveTarget | null>(null);
   const [zone, setZone] = useState<Zone | null>(null);
   const [player, setPlayer] = useState<{ x: number; z: number; yaw: number } | null>(null);
+  // other real shoppers (live presence)
+  const presence = useRef<PresenceClient | null>(null);
+  const [others, setOthers] = useState<RemoteShopper[]>([]);
+  const [showOthers, setShowOthers] = useState(() => {
+    try {
+      return localStorage.getItem('shopwalk360_show_others') !== 'off';
+    } catch {
+      return true;
+    }
+  });
   const [route, setRoute] = useState<{ x: number; z: number }[] | null>(null);
   const [walking, setWalking] = useState(false);
   const [inspect, setInspect] = useState<StoreShelf | null>(null);
@@ -103,6 +114,8 @@ export default function ShopWalkExperience(props: Props) {
           onNearest: setNearest,
           onPosition: (p) => {
             setPlayer(p);
+            const st = eng.getPlayerState();
+            presence.current?.sendPosition(st.x, st.z, st.yaw, st.speed, st.inside);
             setWalking(eng.isWalking());
           },
           onZone: setZone,
@@ -139,7 +152,37 @@ export default function ShopWalkExperience(props: Props) {
   /* -------------------------------------------------- sync state into the engine */
   useEffect(() => {
     engine.current?.setAvatarConfig(effectiveAvatar);
+    presence.current?.setLook(effectiveAvatar);
   }, [effectiveAvatar, ready]);
+
+  // live presence: connect once the store is ready, disconnect when leaving the 3D store
+  useEffect(() => {
+    if (!ready) return;
+    const client = new PresenceClient((list) => {
+      setOthers(list);
+      engine.current?.setRemoteShoppers(list);
+    });
+    presence.current = client;
+    client.setLook(effectiveAvatar);
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') client.leave();
+    };
+    document.addEventListener('visibilitychange', onHide);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      client.close();
+      presence.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+  useEffect(() => {
+    engine.current?.setShowOthers(showOthers);
+    try {
+      localStorage.setItem('shopwalk360_show_others', showOthers ? 'on' : 'off');
+    } catch {
+      /* ignore */
+    }
+  }, [showOthers, ready]);
   const cartCount = cart.reduce((a, i) => a + i.quantity, 0);
   const cartSubtotal = cart.reduce((a, i) => a + (i.product.discount_price || i.product.regular_price) * i.quantity, 0);
   useEffect(() => {
@@ -312,6 +355,10 @@ export default function ShopWalkExperience(props: Props) {
           zone={zone}
           nearest={nearest}
           player={player}
+          others={showOthers ? others : []}
+          othersCount={others.length}
+          showOthers={showOthers}
+          onToggleOthers={() => setShowOthers((v) => !v)}
           route={route}
           highlightShelfId={highlight}
           tryOns={tryOns}
