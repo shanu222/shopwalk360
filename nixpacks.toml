@@ -1,6 +1,11 @@
 [variables]
 NIXPACKS_NODE_VERSION = "22"
 
+# better-sqlite3 falls back to node-gyp. Nix garbage-collects compilers
+# between phases, so these apt packages have to stay on the image.
+[phases.setup]
+aptPkgs = ["...", "python3", "build-essential"]
+
 [phases.build]
 cmds = ["echo 'API only - no frontend build on Railway'"]
 
