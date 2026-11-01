@@ -9,7 +9,7 @@ import { apiRouter, getActiveUserId } from './server/routes.js';
 import { attachPresence } from './server/presence.js';
 import { store3dRouter, migrateStoreExperienceV2, bindSession, serveUploads, seedMusicLibrary, serveMusicLibrary } from './server/store3dV2.js';
 import { authMiddleware } from './server/auth.js';
-import { bootstrapAdmin, removeDemoData } from './server/production.js';
+import { bootstrapAdmin, ensureStoreContact, removeDemoData } from './server/production.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -17,6 +17,7 @@ async function startServer() {
   initDatabase();
   migrateStoreExperienceV2();
   removeDemoData();
+  ensureStoreContact();
   seedMusicLibrary();
   bootstrapAdmin();
   bindSession(getActiveUserId);

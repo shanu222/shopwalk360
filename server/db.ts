@@ -368,6 +368,17 @@ export function initDatabase() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS inquiries (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      phone TEXT,
+      topic TEXT NOT NULL,
+      message TEXT NOT NULL,
+      emailed INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- 15. Audit Logs
     CREATE TABLE IF NOT EXISTS audit_logs (
       id TEXT PRIMARY KEY,
@@ -468,7 +479,7 @@ function seedInitialData() {
   insertSetting.run('store_tagline', 'Curated Quality Goods Direct from Certified Manufacturers');
   insertSetting.run('contact_phone', '+92 42 3578 9900');
   insertSetting.run('contact_whatsapp', '+92 300 1234567');
-  insertSetting.run('contact_email', 'support@auracommerce.pk');
+  insertSetting.run('contact_email', 'info@shopwalk360.com');
   insertSetting.run('office_address', 'Level 4, Tricon Corporate Centre, Main Boulevard, Gulberg, Lahore, Pakistan');
   insertSetting.run('free_delivery_threshold', '3500');
   insertSetting.run('standard_shipping_rate', '220');
@@ -966,7 +977,7 @@ function seedInitialData() {
   `);
 
   // Order 1: Delivered
-  insertOrder.run('ord_1', 'AC-20261028-1001', 'Zainab Fatima', 'zainab.f@gmail.com', '+923219876543', 'House 142, Street 8, Phase 5, DHA', 'Lahore', 'Punjab', 'Delivered', 'COD', 'Paid', 3350, 0, 0, 3350, null, 'TCS Express', 'TCS-928174412');
+  insertOrder.run('ord_1', 'AC-20261028-1001', 'Zainab Fatima', 'info@shopwalk360.com', '+923219876543', 'House 142, Street 8, Phase 5, DHA', 'Lahore', 'Punjab', 'Delivered', 'COD', 'Paid', 3350, 0, 0, 3350, null, 'TCS Express', 'TCS-928174412');
   insertOrderItem.run('oi_1', 'ord_1', 'prod_1', 'Aura 65W GaN Pro Multi-Port Ultra Fast Wall Charger with 100W Braided Cable', 'AC-EL-65W', 3350, 1650, 1, 3350);
 
   // Order 2: In Transit

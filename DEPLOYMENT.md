@@ -58,7 +58,23 @@ The product database is SQLite (better-sqlite3) stored on the Railway volume. Cl
 ## 4. After first login
 Admin → Settings: fill in business address, phone, support email, About us, returns policy, shipping rates and (if you accept it) bank details — the storefront shows only what you enter. Card payments are disabled until a real payment gateway is integrated; Cash on Delivery and (if bank details exist) Bank Transfer work.
 
-## 5. Custom domain (www.shopwalk360.com)
+## 5. Store email (info@shopwalk360.com)
+Inquiries from the website are sent with Namecheap Private Email.
+
+1. In Namecheap, open the `info@shopwalk360.com` mailbox and set its password.
+2. On Railway, add these variables and redeploy:
+
+| Variable | Value |
+|---|---|
+| `SMTP_HOST` | `mail.privateemail.com` |
+| `SMTP_PORT` | `465` |
+| `SMTP_USER` | `info@shopwalk360.com` |
+| `SMTP_PASS` | the mailbox password |
+| `INQUIRY_TO` | `info@shopwalk360.com` |
+
+Outgoing mail uses SSL on port 465 (port 587 also works if you set `SMTP_PORT` to `587`). Incoming mail, if you read it in another app, is IMAP `mail.privateemail.com` port `993` with SSL. Until `SMTP_PASS` is set, the form still saves the message and the admin can read it under Settings.
+
+## 6. Custom domain (www.shopwalk360.com)
 - Namecheap DNS: `A @ 216.198.79.1` and `CNAME www → <your-project>.vercel-dns-017.com` (as shown in Vercel → Domains).
 - The backend always accepts requests from `https://www.shopwalk360.com` and `https://shopwalk360.com`; keep any other origins (e.g. `https://shopwalk360.vercel.app`) in `CORS_ORIGINS`.
 - Cloudflare R2 → bucket → CORS: add `https://www.shopwalk360.com` and `https://shopwalk360.com` to `AllowedOrigins`.

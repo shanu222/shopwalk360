@@ -79,6 +79,13 @@ export function removeDemoData() {
   console.log('Demo data removed; store branded as ShopWalk 360.');
 }
 
+/** Public store address. Replaces a blank, Gmail, or old placeholder contact email. */
+export function ensureStoreContact() {
+  const current = (getSetting('contact_email') || '').trim();
+  const replace = !current || /@gmail\.com$/i.test(current) || current.toLowerCase() === 'support@auracommerce.pk';
+  if (replace) setting('contact_email', 'info@shopwalk360.com');
+}
+
 /* ------------------------------------------------------------------ Cloudflare R2 media storage */
 let r2: S3Client | null = null;
 export const r2Enabled = () =>

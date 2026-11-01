@@ -13,6 +13,14 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
   const [settings, setSettings] = useState<Record<string, string>>(initialSettings);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [inquiries, setInquiries] = useState<{ id: string; name: string; email: string; phone: string; topic: string; message: string; created_at: string }[]>([]);
+
+  useEffect(() => {
+    fetch('/api/admin/inquiries')
+      .then((r) => (r.ok ? r.json() : { inquiries: [] }))
+      .then((d) => setInquiries(d.inquiries || []))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     setSettings(initialSettings);
@@ -123,7 +131,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
             </div>
             <div>
               <label className="block font-semibold text-slate-700 mb-1">Support email</label>
-              <input type="email" value={settings.contact_email || ''} onChange={(e) => handleChange('contact_email', e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl" />
+              <input type="email" value={settings.contact_email || ''} placeholder="info@shopwalk360.com" onChange={(e) => handleChange('contact_email', e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl" />
             </div>
             <div className="sm:col-span-2">
               <label className="block font-semibold text-slate-700 mb-1">About us (shown on the About page)</label>
@@ -234,6 +242,27 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
           {saving ? 'Saving Settings...' : 'Save Configuration'}
         </button>
       </form>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-5">
+        <h2 className="text-sm font-bold text-slate-900">Customer inquiries</h2>
+        <p className="mt-1 text-xs text-slate-500">Messages sent from the store are delivered to info@shopwalk360.com and kept here.</p>
+        {inquiries.length === 0 ? (
+          <p className="mt-4 text-sm text-slate-500">No messages yet.</p>
+        ) : (
+          <ul className="mt-4 divide-y divide-slate-100">
+            {inquiries.map((q) => (
+              <li key={q.id} className="py-3 text-sm">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="font-semibold text-slate-900">{q.name} · {q.topic}</span>
+                  <span className="text-xs text-slate-400">{q.created_at}</span>
+                </div>
+                <div className="text-xs text-slate-500">{q.email}{q.phone ? ` · ${q.phone}` : ''}</div>
+                <p className="mt-1 whitespace-pre-wrap text-slate-700">{q.message}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 };

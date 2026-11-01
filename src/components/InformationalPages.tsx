@@ -1,5 +1,6 @@
 import React from 'react';
 import { ArrowLeft } from 'lucide-react';
+import { InquiryForm } from './InquiryForm';
 
 interface InformationalPagesProps {
   page: 'about' | 'faq';
@@ -39,15 +40,18 @@ export const InformationalPages: React.FC<InformationalPagesProps> = ({ page, on
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#b08d4f]">About us</p>
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">ShopWalk 360</h1>
           <p className="text-base leading-relaxed text-slate-600">{s.about_text || 'ShopWalk 360 brings the feeling of visiting a real store to online shopping. Walk through our 3D store with your own avatar, look at products from every angle, try clothing and accessories on, and check out in the same basket as our online store.'}</p>
-          {(s.contact_email || s.contact_phone || s.office_address) && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-700">
-              <div className="mb-2 font-bold text-slate-900">Contact</div>
-              {s.contact_phone && <div>Phone: {s.contact_phone}</div>}
-              {s.contact_whatsapp && <div>WhatsApp: {s.contact_whatsapp}</div>}
-              {s.contact_email && <div>Email: {s.contact_email}</div>}
-              {s.office_address && <div>Address: {s.office_address}</div>}
-            </div>
-          )}
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-700">
+            <div className="mb-2 font-bold text-slate-900">Contact</div>
+            {s.contact_phone && <div>Phone: {s.contact_phone}</div>}
+            {s.contact_whatsapp && <div>WhatsApp: {s.contact_whatsapp}</div>}
+            <div>Email: {s.contact_email || 'info@shopwalk360.com'}</div>
+            {s.office_address && <div>Address: {s.office_address}</div>}
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <h2 className="text-lg font-bold text-slate-900">Send an inquiry</h2>
+            <p className="mb-4 mt-1 text-sm text-slate-600">We reply from {s.contact_email || 'info@shopwalk360.com'}.</p>
+            <InquiryForm />
+          </div>
         </div>
       ) : (
         <div className="space-y-5">

@@ -3,6 +3,7 @@ import { db, hashPassword, verifyPassword, isLegacyHash } from './db.js';
 import { presenceStats } from './presence.js';
 import crypto from 'crypto';
 import { currentUserId, issueToken } from './auth.js';
+import { mailConfigured, sendInquiryEmail, STORE_EMAIL } from './mail.js';
 
 export const apiRouter = Router();
 
@@ -585,6 +586,47 @@ apiRouter.post('/wishlist/toggle', (req: Request, res: Response) => {
   }
 });
 
+// --- CUSTOMER INQUIRIES ---
+const INQUIRY_TOPICS = ['General inquiry', 'Product question', 'Order help', 'Delivery', 'Returns'];
+const inquiryHits = new Map<string, number[]>();
+
+apiRouter.post('/inquiries', async (req: Request, res: Response) => {
+  try {
+    const name = String(req.body?.name || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    const email = String(req.body?.email || '').trim().slice(0, 120);
+    const phone = String(req.body?.phone || '').replace(/\s+/g, ' ').trim().slice(0, 30);
+    const topic = INQUIRY_TOPICS.includes(req.body?.topic) ? req.body.topic : 'General inquiry';
+    const message = String(req.body?.message || '').trim().slice(0, 2000);
+    if (req.body?.website) return res.json({ success: true });
+    if (name.length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || message.length < 10) {
+      return res.status(400).json({ error: 'Please add your name, a valid email, and a message of at least 10 characters.' });
+    }
+    const ip = String(req.ip || 'local');
+    const now = Date.now();
+    const recent = (inquiryHits.get(ip) || []).filter((t) => now - t < 60 * 60 * 1000);
+    if (recent.length >= 5) return res.status(429).json({ error: 'Please wait a while before sending another message.' });
+    recent.push(now);
+    inquiryHits.set(ip, recent);
+
+    const id = `inq_${Date.now()}`;
+    let emailed = 0;
+    if (mailConfigured()) {
+      try {
+        await sendInquiryEmail({ name, email, phone, topic, message });
+        emailed = 1;
+      } catch (err) {
+        console.error('Inquiry email failed:', err);
+      }
+    } else {
+      console.warn(`Inquiry saved but SMTP is not configured. Messages should go to ${STORE_EMAIL}.`);
+    }
+    db.prepare('INSERT INTO inquiries (id, name, email, phone, topic, message, emailed) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, name, email, phone, topic, message, emailed);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- NEWSLETTER ---
 apiRouter.post('/newsletter', (req: Request, res: Response) => {
   try {
@@ -662,6 +704,15 @@ function requireAdmin(req: Request, res: Response, next: Function) {
   }
   next();
 }
+
+apiRouter.get('/admin/inquiries', requireAdmin, (_req: Request, res: Response) => {
+  try {
+    const inquiries = db.prepare('SELECT id, name, email, phone, topic, message, emailed, created_at FROM inquiries ORDER BY created_at DESC LIMIT 50').all();
+    res.json({ inquiries });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // 1. Dashboard Overview with Real Financial Calculations
 apiRouter.get('/admin/overview', requireAdmin, (req: Request, res: Response) => {

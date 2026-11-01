@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Phone, Mail, MapPin, MessageCircle, ArrowRight, Check } from 'lucide-react';
 import { Category } from '../types';
 import { BrandMark } from './Navbar';
+import { InquiryForm } from './InquiryForm';
 
 interface FooterProps {
   categories: Category[];
@@ -31,10 +32,11 @@ export const Footer: React.FC<FooterProps> = ({ categories, onSelectCategory, on
   };
 
   const linkCls = 'text-sm text-white/60 transition hover:text-white';
+  const storeEmail = s.contact_email || 'info@shopwalk360.com';
   const contacts = [
     s.contact_phone && { icon: Phone, text: s.contact_phone, href: `tel:${s.contact_phone.replace(/\s/g, '')}` },
     s.contact_whatsapp && { icon: MessageCircle, text: `WhatsApp ${s.contact_whatsapp}`, href: `https://wa.me/${s.contact_whatsapp.replace(/\D/g, '')}` },
-    s.contact_email && { icon: Mail, text: s.contact_email, href: `mailto:${s.contact_email}` },
+    { icon: Mail, text: storeEmail, href: `mailto:${storeEmail}` },
     s.office_address && { icon: MapPin, text: s.office_address },
   ].filter(Boolean) as { icon: React.ElementType; text: string; href?: string }[];
 
@@ -84,6 +86,15 @@ export const Footer: React.FC<FooterProps> = ({ categories, onSelectCategory, on
             </form>
           )}
           {state === 'error' && <p className="mt-2 text-xs text-rose-300">Couldn’t subscribe right now. Please try again.</p>}
+        </div>
+      </div>
+      <div className="border-t border-white/10">
+        <div className="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:px-6 lg:grid-cols-[0.8fr_1.2fr] lg:px-8">
+          <div>
+            <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-[#c8a96a]">Inquire</h3>
+            <p className="mt-3 max-w-sm text-sm leading-relaxed text-white/60">Questions about a product, an order, or the store? Send a message and we reply from {storeEmail}.</p>
+          </div>
+          <InquiryForm tone="dark" />
         </div>
       </div>
       <div className="border-t border-white/10">
