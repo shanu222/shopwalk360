@@ -6,6 +6,7 @@ import { ZoomIn, ZoomOut, RotateCw, Pause, Ruler, MapPin, Maximize } from 'lucid
 import { buildProductModel, Dimensions, Hotspot, DemoDefinition, ProductModel } from '../builder/productModels';
 import { getGLTFLoader } from '../avatar/glbAvatar';
 import { contactShadowTexture } from '../builder/materials';
+import { screenMediaUrl } from '../../../lib/api';
 
 export interface ViewerProps {
   preset?: string | null;
@@ -192,7 +193,7 @@ export const ProductViewer3D = forwardRef<ViewerHandle, ViewerProps>((props, ref
     if (glbUrl) {
       setGlbState('loading');
       getGLTFLoader(s.renderer)
-        .loadAsync(glbUrl)
+        .loadAsync(screenMediaUrl(glbUrl))
         .then((gltf) => {
           if (cancelled) return;
           const obj = gltf.scene;

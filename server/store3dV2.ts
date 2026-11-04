@@ -1108,8 +1108,25 @@ function parseRange(range: string | undefined, total: number): [number, number] 
   return start <= end ? [start, end] : null;
 }
 
+/**
+ * Any stored file by its public URL (r2.dev or a custom domain): 3D models and videos are loaded
+ * through the API because the public bucket address does not send the CORS headers WebGL needs.
+ * URLs that are not in this store's bucket are simply redirected to.
+ */
+store3dRouter.get('/media-by-url', (req, res, next) => {
+  const u = String(req.query.u || '');
+  if (!/^https?:\/\//i.test(u)) return res.status(400).end();
+  const base = (process.env.R2_PUBLIC_URL || '').replace(/\/$/, '');
+  let key: string | null = null;
+  if (base && u.startsWith(base + '/')) key = u.slice(base.length + 1).split(/[?#]/)[0];
+  else key = u.match(/^https?:\/\/[^/]+\.r2\.dev\/([^?#]+)/i)?.[1] || null;
+  if (!key) return res.redirect(302, u);
+  req.url = `/media/${key}`;
+  next();
+});
+
 store3dRouter.get(/^\/media\/(.+)$/, async (req, res) => {
-  const key = decodeURIComponent(String(req.params[0] || ''));
+  const key = decodeURIComponent(String((req.params as any)[0] || req.url.replace(/^\/media\//, '').split('?')[0]));
   const range = typeof req.headers.range === 'string' ? req.headers.range : undefined;
   const common = () => {
     res.setHeader('Access-Control-Allow-Origin', '*');

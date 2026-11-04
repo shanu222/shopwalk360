@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense, useCallback } from 'react';
+import React, { useState, useEffect, lazy, Suspense, useCallback, startTransition } from 'react';
 import { ProductImage } from './components/ProductImage';
 import { Sofa, CookingPot, Cable, Smartphone, CarFront, Luggage, Laptop, Shirt, Footprints, Watch, Dumbbell, Gift } from 'lucide-react';
 import { 
@@ -76,7 +76,8 @@ export default function App() {
   });
   const shoppingMode: '3d' | '2d' = chosenMode || '2d';
   const setShoppingMode = (m: '3d' | '2d') => {
-    setChosenMode(m);
+    // switching views mounts a whole store: let the click respond first
+    startTransition(() => setChosenMode(m));
     try {
       sessionStorage.setItem('shopwalk360_mode', m);
     } catch {

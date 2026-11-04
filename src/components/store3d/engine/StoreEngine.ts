@@ -199,7 +199,15 @@ export class StoreEngine {
   }
 
   // pick-from-shelf → basket animation
-  private pickAnim: { mesh: THREE.Object3D; t: number; from: THREE.Vector3; faceYaw: number | null; owned: boolean } | null = null;
+  private pickAnim: {
+    mesh: THREE.Object3D; t: number; from: THREE.Vector3; faceYaw: number | null; owned: boolean;
+    /** 'auto': shelf → hand → basket; 'hold': stays in the hand until released */
+    mode: 'auto' | 'hold';
+    release: 'basket' | 'shelf' | null;
+    releaseAt: number;
+    unit: PickUnit | null;
+    unitWasTaken: boolean;
+  } | null = null;
   private restockTimers = new Set<number>();
   private basketShown = 0;
   private basketTarget = 0;
@@ -324,9 +332,12 @@ export class StoreEngine {
       if (this.disposed || this.store !== store) return;
       let source: THREE.Object3D;
       try {
-        source = (await loader.loadAsync(mediaUrl(url))).scene;
+        source = (await loader.loadAsync(screenMediaUrl(url))).scene;
       } catch {
-        continue; // a model that fails to load simply is not shown
+        // the model could not be loaded: show the product as a box with its photo instead of an empty shelf
+        if (this.disposed || this.store !== store) return;
+        this.placePhotoBoxes(store, slots);
+        continue;
       }
       if (this.disposed || this.store !== store) return;
       source.traverse((o) => {
@@ -365,6 +376,35 @@ export class StoreEngine {
         list.push({ matrix: slot.matrix.clone(), size: fitted.getSize(new THREE.Vector3()), object: holder });
         store.units.set(slot.itemId, list);
       }
+    }
+  }
+
+  /** Stand-in for products whose 3D model failed to load: boxes printed with the product photo. */
+  private placePhotoBoxes(store: BuiltStore, slots: BuiltStore['modelSlots']) {
+    const sh = slots[0].shelf;
+    const side = new THREE.MeshStandardMaterial({ color: new THREE.Color(sh.theme_color || '#8a8f98').lerp(new THREE.Color('#f3f1ec'), 0.55), roughness: 0.6 });
+    const front = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.55 });
+    if (sh.primary_image) {
+      const loader = new THREE.TextureLoader();
+      loader.setCrossOrigin('anonymous');
+      loader.load(screenMediaUrl(sh.primary_image), (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        front.map = tex;
+        front.needsUpdate = true;
+      });
+    }
+    for (const slot of slots) {
+      const size = new THREE.Vector3(slot.maxSize * 0.6, slot.maxSize * 0.9, slot.maxSize * 0.4);
+      const box = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), [side, side, side, side, front, front]);
+      box.position.y = size.y / 2;
+      const holder = new THREE.Group();
+      holder.add(box);
+      holder.applyMatrix4(slot.matrix);
+      this.scene.add(holder);
+      this.productModels.push({ obj: holder, spin: false, baseYaw: holder.rotation.y });
+      const list = store.units.get(slot.itemId) || [];
+      list.push({ matrix: slot.matrix.clone(), size, object: holder });
+      store.units.set(slot.itemId, list);
     }
   }
 
@@ -440,7 +480,27 @@ export class StoreEngine {
    * The shopper takes the product: one real unit leaves its spot on the shelf, travels to the hand,
    * then into the basket. The shelf is restocked a minute later, as staff would.
    */
-  playPick(opts: { shelfId?: string; productId?: string; imageUrl?: string } = {}) {
+  /**
+   * The shopper takes a product off the shelf and holds it (for the close-up view). Release it
+   * with releaseHeld('basket') to put it in the basket, or releaseHeld('shelf') to put it back.
+   */
+  holdProduct(spotId: string, imageUrl?: string) {
+    this.playPick({ shelfId: spotId, imageUrl }, 'hold');
+  }
+
+  releaseHeld(to: 'basket' | 'shelf') {
+    const a = this.pickAnim;
+    if (!a || a.mode !== 'hold' || a.release) return;
+    a.release = to;
+    a.releaseAt = Math.max(a.t, 0.5);
+    if (to === 'basket') storeAudio.pick();
+  }
+
+  isHolding() {
+    return !!this.pickAnim && this.pickAnim.mode === 'hold' && !this.pickAnim.release;
+  }
+
+  playPick(opts: { shelfId?: string; productId?: string; imageUrl?: string } = {}, mode: 'auto' | 'hold' = 'auto') {
     storeAudio.pick();
     const avatar = this.avatar;
     if (!avatar) return;
@@ -465,6 +525,7 @@ export class StoreEngine {
     let owned = true;
     // take the unit nearest to the shopper from that spot
     const unit = near && target ? this.takeUnit(target.id) : null;
+    const unitWasTaken = !!unit?.taken;
     if (unit) {
       from = new THREE.Vector3();
       if (unit.object) unit.object.getWorldPosition(from);
@@ -516,7 +577,7 @@ export class StoreEngine {
     carried.traverse((o) => ((o as THREE.Mesh).castShadow = true));
     carried.position.copy(from);
     this.scene.add(carried);
-    this.pickAnim = { mesh: carried, t: 0, from, faceYaw, owned };
+    this.pickAnim = { mesh: carried, t: 0, from, faceYaw, owned, mode, release: null, releaseAt: 0, unit, unitWasTaken };
   }
 
   /** Take one unit from a spot's shelf (the nearest one still there); it is restocked a minute later. */
@@ -549,6 +610,7 @@ export class StoreEngine {
       this.setUnitVisible(unit, true);
     }, 60000);
     this.restockTimers.add(timer);
+    (unit as any).restockTimer = timer;
     return best;
   }
 
@@ -615,17 +677,44 @@ export class StoreEngine {
       const k = ease(a.t / T1);
       m.position.lerpVectors(a.from, hand, k);
       m.rotation.y = this.yaw + k * 0.4;
-    } else if (a.t < T2) {
-      m.position.copy(hand);
-    } else if (a.t < T3) {
-      const k = ease((a.t - T2) / (T3 - T2));
-      m.position.lerpVectors(hand, drop, k);
-      m.position.y += Math.sin(k * Math.PI) * 0.12;
-      m.scale.setScalar(1 - 0.35 * k);
-      m.rotation.y = this.yaw + 0.4 + k * 0.8;
-    } else {
-      this.finishPick();
+      return;
     }
+    if (a.mode === 'hold' && !a.release) {
+      // held up in the hand while the shopper looks at it
+      m.position.copy(hand);
+      m.rotation.y = this.yaw + 0.4 + Math.sin(a.t * 1.2) * 0.08;
+      return;
+    }
+    if (a.mode === 'auto' && a.t < T2) {
+      m.position.copy(hand);
+      return;
+    }
+    const t0 = a.mode === 'auto' ? T2 : a.releaseAt;
+    const k = Math.min(1, ease((a.t - t0) / (T3 - T2)));
+    if (a.release === 'shelf') {
+      // back onto the shelf, exactly where it came from
+      m.position.lerpVectors(hand, a.from, k);
+      m.position.y += Math.sin(k * Math.PI) * 0.06;
+      if (k >= 1) {
+        const u = a.unit;
+        if (u && a.unitWasTaken) {
+          const timer = (u as any).restockTimer as number | undefined;
+          if (timer) {
+            clearTimeout(timer);
+            this.restockTimers.delete(timer);
+          }
+          u.taken = false;
+          this.setUnitVisible(u, true);
+        }
+        this.finishPick();
+      }
+      return;
+    }
+    m.position.lerpVectors(hand, drop, k);
+    m.position.y += Math.sin(k * Math.PI) * 0.12;
+    m.scale.setScalar(1 - 0.35 * k);
+    m.rotation.y = this.yaw + 0.4 + k * 0.8;
+    if (k >= 1) this.finishPick();
   }
 
   getTargets() {

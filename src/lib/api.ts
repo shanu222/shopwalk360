@@ -27,12 +27,24 @@ export const setToken = (t: string | null) => {
 /** Resolve a stored media URL (absolute R2/Railway URLs pass through; legacy `/uploads/...` gets the API host) */
 export const mediaUrl = (u?: string | null) => (u && (u.startsWith('/uploads/') || u.startsWith('/music-library/')) ? `${API_BASE}${u}` : u || '');
 
-/** Same file, loaded through the API so a 3D screen is allowed to play a Cloudflare video. */
+/**
+ * Same file, loaded through the API, so WebGL (3D screens, 3D product models) may use it: the
+ * public Cloudflare bucket address — r2.dev or a custom domain — does not send CORS headers.
+ * Files the API serves itself pass straight through.
+ */
 export const screenMediaUrl = (u?: string | null) => {
   const abs = mediaUrl(u);
+  if (!abs || !/^https?:\/\//i.test(abs)) return abs;
   const r2 = abs.match(/^https?:\/\/[^/]+\.r2\.dev\/([^?#]+)/i);
-  if (!r2) return abs;
-  return `${API_BASE}/api/media/${r2[1]}`;
+  if (r2) return `${API_BASE}/api/media/${r2[1]}`;
+  try {
+    const host = new URL(abs).host;
+    const apiHost = API_BASE ? new URL(API_BASE, window.location.href).host : window.location.host;
+    if (host === apiHost || host === window.location.host) return abs;
+  } catch {
+    return abs;
+  }
+  return `${API_BASE}/api/media-by-url?u=${encodeURIComponent(abs)}`;
 };
 
 const nativeFetch = window.fetch.bind(window);

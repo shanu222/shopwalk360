@@ -1,5 +1,5 @@
 import { spotsFor } from '../layout/fixtureSpots';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { startTransition, useEffect, useMemo, useState } from 'react';
 import { X, Star, ShoppingBag, Minus, Plus, Play, Box, Image as ImageIcon, Shirt, MapPin, Check, PackageCheck, AlertTriangle, ShieldCheck, Video, Sparkles, Home as HomeIcon } from 'lucide-react';
 import { AvatarConfig, Product, ProductImage, ProductVariant, Review, StoreShelf, TryOnOverride, ExperienceIntegrations } from '../../../types';
 import { ProductViewer3D } from './ProductViewer3D';
@@ -153,7 +153,7 @@ export const ProductExperiencePanel: React.FC<Props> = ({ shelf, avatar, integra
               <div className="min-w-0 space-y-3">
                 <div className="flex gap-1.5 overflow-x-auto rounded-2xl bg-slate-100 p-1" role="tablist" aria-label="Product views">
                   {mediaTabs.filter((t) => t.show).map((t) => (
-                    <button key={t.id} role="tab" aria-selected={media === t.id} onClick={() => setMedia(t.id)} className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition ${media === t.id ? 'bg-white shadow-sm' : 'text-slate-600 hover:text-slate-900'} ${t.id === 'video' && video ? 'text-rose-700' : ''}`}>
+                    <button key={t.id} role="tab" aria-selected={media === t.id} onClick={() => startTransition(() => setMedia(t.id))} className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition ${media === t.id ? 'bg-white shadow-sm' : 'text-slate-600 hover:text-slate-900'} ${t.id === 'video' && video ? 'text-rose-700' : ''}`}>
                       <t.icon className="h-4 w-4" /> {t.label}
                     </button>
                   ))}

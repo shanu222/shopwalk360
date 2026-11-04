@@ -114,7 +114,7 @@ export const StoreHUD: React.FC<Props> = (p) => {
   }, [query, p.departments]);
 
   useEffect(() => {
-    if (p.nearest) setAnnounce(`Nearby: ${p.nearest.title}. ${p.nearest.kind === 'product' ? 'Choose Explore Product to view details.' : ''}`);
+    if (p.nearest) setAnnounce(`Nearby: ${p.nearest.title}. ${p.nearest.kind === 'product' ? 'Click it, or press E, to pick it up.' : ''}`);
   }, [p.nearest?.id]);
   useEffect(() => {
     if (p.zone) setAnnounce(`You are in ${zoneLabel(p.zone, p.departments)}`);
@@ -264,7 +264,7 @@ export const StoreHUD: React.FC<Props> = (p) => {
       )}
 
       {/* PROXIMITY CARD */}
-      {p.nearest && !panel && (
+      {p.nearest && p.nearest.kind !== 'product' && !panel && (
         <div className="absolute bottom-[9.75rem] left-3 right-14 md:bottom-6 md:left-1/2 md:right-auto md:w-[min(94vw,460px)] md:-translate-x-1/2">
           <div className="pointer-events-auto flex items-center gap-3 rounded-3xl border border-white/15 bg-[#1a1816]/90 p-3 shadow-2xl backdrop-blur-xl">
             {nearestShelf?.primary_image ? (
@@ -278,7 +278,7 @@ export const StoreHUD: React.FC<Props> = (p) => {
               {price ? <div className="text-xs font-bold text-[#e2c88f]">PKR {Number(price).toLocaleString()}</div> : null}
             </div>
             <button onClick={() => p.onExplore(p.nearest!)} className="shrink-0 rounded-2xl bg-[#c8a96a] px-4 py-3 text-xs font-extrabold text-[#1a1712] hover:bg-[#d6b97c]">
-              {p.nearest.kind === 'product' ? 'Explore Product' : p.nearest.kind === 'checkout' ? 'Checkout' : p.nearest.kind === 'basket' ? 'View basket' : 'Open'}
+              {p.nearest.kind === 'checkout' ? 'Checkout' : p.nearest.kind === 'basket' ? 'View basket' : 'Open'}
               {!p.isTouch && <span className="ml-1.5 rounded bg-black/15 px-1 font-mono text-[10px]">E</span>}
             </button>
           </div>
@@ -309,7 +309,7 @@ export const StoreHUD: React.FC<Props> = (p) => {
 
       {!p.isTouch && !panel && !p.nearest && (
         <div className="absolute bottom-4 left-4 hidden rounded-2xl border border-white/10 bg-[#1a1816]/70 px-3 py-2 text-[11px] text-white/65 backdrop-blur md:block">
-          <b className="text-white/85">Click</b> the floor to walk · <b className="text-white/85">Drag</b> to look · <b className="text-white/85">WASD</b> to walk · <b className="text-white/85">E</b> to explore
+          <b className="text-white/85">Click</b> the floor to walk · <b className="text-white/85">Click a product</b> to pick it up · <b className="text-white/85">Drag</b> to look · <b className="text-white/85">WASD</b> to walk
         </div>
       )}
 
@@ -476,10 +476,10 @@ export const StoreHUD: React.FC<Props> = (p) => {
                 <div className="rounded-2xl bg-white/[0.04] p-4">
                   <div className="mb-2 font-semibold text-white">On a computer</div>
                   <ul className="space-y-1.5 text-xs">
-                    <li><b>Click the floor</b> to walk there, or <b>click a display</b> to walk up to it.</li>
+                    <li><b>Click the floor</b> to walk there, or <b>click a product</b>: you walk up to it, take it off the shelf and see it up close in 3D.</li>
                     <li><b>W A S D</b> or <b>arrow keys</b> walk; hold <b>Shift</b> to walk faster.</li>
                     <li><b>Drag</b> to look around; <b>scroll</b> to zoom.</li>
-                    <li>Press <b>E</b> next to a display to explore the product.</li>
+                    <li>Press <b>E</b> next to a product to pick it up. Then put it in your basket, see full details, or put it back.</li>
                   </ul>
                 </div>
                 <div className="rounded-2xl bg-white/[0.04] p-4">

@@ -9,6 +9,7 @@ import { EntranceGate } from './EntranceGate';
 import { StoreHUD } from './StoreHUD';
 import { AvatarStudio } from './avatar/AvatarStudio';
 import { ProductExperiencePanel } from './product/ProductExperiencePanel';
+import { ProductCloseup } from './product/ProductCloseup';
 import { DEFAULT_AVATAR } from './avatar/AvatarModel';
 import { applyTryOns } from './avatar/tryOn';
 import { loadSavedAvatar, deleteSavedAvatar } from './avatar/avatarService';
@@ -87,6 +88,8 @@ export default function ShopWalkExperience(props: Props) {
   const [route, setRoute] = useState<{ x: number; z: number }[] | null>(null);
   const [walking, setWalking] = useState(false);
   const [inspect, setInspect] = useState<StoreShelf | null>(null);
+  /** the product the shopper is holding, shown up close */
+  const [closeup, setCloseup] = useState<StoreShelf | null>(null);
   const [highlight, setHighlight] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
@@ -231,10 +234,11 @@ export default function ShopWalkExperience(props: Props) {
   useEffect(() => {
     const e = engine.current;
     if (!e) return;
-    const blocking = !!inspect || studio.open || externalModalOpen;
+    const blocking = !!inspect || !!closeup || studio.open || externalModalOpen;
     e.inputEnabled = !blocking;
-    e.setPaused(!!inspect || studio.open);
-  }, [inspect, studio.open, externalModalOpen]);
+    // the store keeps running behind the close-up (the product is held in the hand)
+    e.setPaused((!!inspect && !closeup) || studio.open);
+  }, [inspect, closeup, studio.open, externalModalOpen]);
   useEffect(() => {
     engine.current?.setCameraMode(cameraMode);
   }, [cameraMode, ready]);
@@ -278,7 +282,9 @@ export default function ShopWalkExperience(props: Props) {
     switch (t.kind) {
       case 'product':
         if (t.shelf) {
-          setInspect(t.shelf);
+          // the shopper takes it off the shelf and looks at it up close
+          engine.current?.holdProduct(t.id, t.shelf.primary_image);
+          setCloseup(t.shelf);
           setHighlight(t.shelf.id);
         }
         break;
@@ -336,12 +342,18 @@ export default function ShopWalkExperience(props: Props) {
 
   const handleAdd = (p: Product, qty: number, variant?: string) => {
     onAddToCart(p, qty, variant);
-    // close the panel so the shopper sees their avatar take the item into the basket
-    const shelfId = inspect?.id;
+    // close the panels so the shopper sees the item go into the basket
+    const shelfId = inspect?.id || closeup?.id;
     setInspect(null);
-    engine.current?.playPick({ shelfId, productId: p.id, imageUrl: p.primary_image });
+    setCloseup(null);
+    if (engine.current?.isHolding()) engine.current.releaseHeld('basket');
+    else engine.current?.playPick({ shelfId, productId: p.id, imageUrl: p.primary_image });
     showToast(`Added to your basket: ${p.name.replace(/\s*\(Sample Listing\)/, '')}`);
   };
+  const putBack = useCallback(() => {
+    engine.current?.releaseHeld('shelf');
+    setCloseup(null);
+  }, []);
 
   const wear = (o: TryOnOverride) => {
     setTryOns((list) => [...list.filter((x) => x.slot !== o.slot), o]);
@@ -549,6 +561,22 @@ export default function ShopWalkExperience(props: Props) {
         }}
       />
 
+      {closeup && !inspect && (
+        <PanelBoundary key={`closeup_${closeup.id}`} onClose={putBack}>
+          <ProductCloseup
+            shelf={closeup}
+            onAdd={handleAdd}
+            onBuyNow={(p, q, v) => {
+              engine.current?.releaseHeld('basket');
+              setCloseup(null);
+              onBuyNow(p, q, v);
+            }}
+            onDetails={() => setInspect(closeup)}
+            onPutBack={putBack}
+          />
+        </PanelBoundary>
+      )}
+
       {inspect && (
         <PanelBoundary key={inspect.id} onClose={() => setInspect(null)}>
         <ProductExperiencePanel
@@ -560,6 +588,8 @@ export default function ShopWalkExperience(props: Props) {
           onAdd={handleAdd}
           onBuyNow={(p, q, v) => {
             setInspect(null);
+            if (engine.current?.isHolding()) engine.current.releaseHeld('basket');
+            setCloseup(null);
             onBuyNow(p, q, v);
           }}
           onWearInStore={(o) => {
