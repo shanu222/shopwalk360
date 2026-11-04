@@ -14,7 +14,7 @@ import {
   cabochonMarbleTexture, harlequinMarbleTexture, porcelainTileTexture, addPalm, addFiddleFig, addTree,
   addPainting, paintingsFor, letteringTexture, addLettering, quoteFor,
 } from './decor';
-import { buildFixture, FixturePalette } from './fixtures';
+import { buildFixture, FixturePalette, ShelfUnit } from './fixtures';
 import { STORE, Rect, roomForSlot, placeFixture, RoomGeometry, localToWorld, formatDeptNumber } from '../layout/storeLayout';
 import { StoreDepartment, StoreShelf, PromoScreen, InteriorStyle, LedScreen } from '../../../types';
 
@@ -44,8 +44,31 @@ export interface VideoScreen {
   center: THREE.Vector3;
 }
 
+/** A unit of a product on a shelf that a shopper can take; `mesh`/`index` for packaged units. */
+export interface PickUnit {
+  /** world matrix of the unit (without its size scale) */
+  matrix: THREE.Matrix4;
+  size: THREE.Vector3;
+  mesh?: THREE.InstancedMesh;
+  index?: number;
+  /** a placed uploaded 3D model (filled in by the engine) */
+  object?: THREE.Object3D;
+  taken?: boolean;
+}
+
+/** Where the engine places an uploaded 3D model of a product (one per unit shown). */
+export interface ModelSlot {
+  itemId: string;
+  shelf: StoreShelf;
+  matrix: THREE.Matrix4;
+  maxSize: number;
+}
+
 export interface BuiltStore {
   root: THREE.Group;
+  /** pickable units per product spot (target id) */
+  units: Map<string, PickUnit[]>;
+  modelSlots: ModelSlot[];
   /** per-frame environmental animation (lobby centrepiece etc.) */
   animate: (t: number, dt: number) => void;
   colliders: Rect[];
@@ -196,7 +219,7 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
   const wallC = (minX: number, maxX: number, minZ: number, maxZ: number) => colliders.push({ minX, maxX, minZ, maxZ });
 
   // packaging instances, merged per product at the end
-  const packaging = new Map<string, { shelf: StoreShelf; mats: THREE.Matrix4[]; size: THREE.Vector3 }>();
+  const packaging = new Map<string, { shelf: StoreShelf; mats: THREE.Matrix4[]; size: THREE.Vector3; mesh?: THREE.InstancedMesh }>();
   const addPackaging = (shelf: StoreShelf, m: THREE.Matrix4, size: THREE.Vector3) => {
     const key = `${shelf.product_id}:${size.toArray().join()}`;
     let e = packaging.get(key);
@@ -205,7 +228,14 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
       packaging.set(key, e);
     }
     e.mats.push(m);
+    return { key, index: e.mats.length - 1 };
   };
+  // pickable units per product spot; packaged ones get their InstancedMesh once it is built
+  const units = new Map<string, PickUnit[]>();
+  const pendingUnits: { item: StoreShelf; unit: ShelfUnit }[] = [];
+  const addUnit = (item: StoreShelf, unit: ShelfUnit) => pendingUnits.push({ item, unit });
+  const modelSlots: ModelSlot[] = [];
+  const addModelSlot = (item: StoreShelf, matrix: THREE.Matrix4, maxSize: number) => modelSlots.push({ itemId: item.id, shelf: item, matrix, maxSize });
 
   const progress = async (p: number, label: string) => {
     opts.onProgress?.(p, label);
@@ -675,26 +705,37 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     const palette: FixturePalette = { ...style.palette, accent };
     let productCount = 0;
     let hasDemo = false;
-    deptShelves.forEach((shelf) => {
+    // rows are product spots; group them by their display
+    const byFixture = new Map<string, StoreShelf[]>();
+    deptShelves.forEach((row) => {
+      const fid = row.fixture_id || row.id;
+      const list = byFixture.get(fid) || [];
+      list.push(row);
+      byFixture.set(fid, list);
+    });
+    byFixture.forEach((rows) => {
+      const shelf = rows[0];
+      const items = rows.filter((r) => r.product_id && r.product_name);
       const placed = placeFixture(room, shelf.slot_code);
       if (!placed) return;
-      const res = buildFixture({ batch: b, addPackaging, palette, lowDetail: low }, shelf, placed.x, placed.z, placed.yaw);
+      const res = buildFixture({ batch: b, addPackaging, addUnit, addModelSlot, palette, lowDetail: low }, shelf, items, placed.x, placed.z, placed.yaw);
       // collider (fixtures are axis-aligned at 0/90/180/270°)
       const rot = Math.abs(Math.round(placed.yaw / (Math.PI / 2))) % 2 === 1;
       const hw = (rot ? res.d : res.w) / 2 + 0.15;
       const hd = (rot ? res.w : res.d) / 2 + 0.15;
       colliders.push({ minX: placed.x - hw, maxX: placed.x + hw, minZ: placed.z - hd, maxZ: placed.z + hd });
       res.dynamic.forEach((o) => root.add(o));
+      const lead = items[0] || shelf;
       if (res.screen) {
         const m = res.screen.material as THREE.MeshBasicMaterial;
         m.map?.dispose();
-        const name = shelf.product_name ? shelf.product_name.replace(/\s*\(Sample Listing\)/, '') : '';
+        const name = lead.product_name ? lead.product_name.replace(/\s*\(Sample Listing\)/, '') : '';
         const fitting = shelf.shelf_type === 'fitting_station';
         const board = createLedBoard({
           title: fitting ? (shelf.featured_label || 'Virtual try-on') : (name || 'Demonstration'),
           lines: fitting
-            ? [name ? `Try ${name}` : 'Select a product to try', 'Explore the product, then open Try-On']
-            : [shelf.featured_label || '', shelf.product_video_url ? 'Demonstration playing on this screen' : 'Explore the product and see how it works'].filter(Boolean),
+            ? [name ? `Try ${name}` : 'Products arrive here soon', 'Explore the product, then open Try-On']
+            : [shelf.featured_label || '', lead.product_video_url ? 'Demonstration playing on this screen' : 'Explore the product and see how it works'].filter(Boolean),
           accent,
           wide: true,
         });
@@ -704,31 +745,42 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
         m.color.set('#ffffff');
         m.toneMapped = false;
         m.needsUpdate = true;
-        if (shelf.product_video_url && shelf.product_video_type === 'file') {
-          videoScreens.push({ mesh: res.screen, id: shelf.id, videoUrl: shelf.product_video_url, playlist: [shelf.product_video_url], center: res.screen.position.clone() });
+        if (lead.product_video_url && lead.product_video_type === 'file') {
+          videoScreens.push({ mesh: res.screen, id: lead.id, videoUrl: lead.product_video_url, playlist: [lead.product_video_url], center: res.screen.position.clone() });
         }
       }
-      // invisible hit volume for click selection
-      const hit = new THREE.Mesh(new THREE.BoxGeometry(res.w, res.h, res.d));
-      hit.position.set(placed.x, res.h / 2, placed.z);
-      hit.rotation.y = placed.yaw;
-      hit.userData.targetId = shelf.id;
-      hit.updateMatrixWorld();
-      hitGroup.add(hit);
       if (shelf.zone === 'demo') hasDemo = true;
-      if (shelf.product_id && shelf.product_name) {
+      // one click target per product spot, standing on the side of the display the spot faces
+      const c = Math.cos(placed.yaw);
+      const sn = Math.sin(placed.yaw);
+      const toWorld = (lx: number, lz: number) => ({ x: placed.x + lx * c + lz * sn, z: placed.z - lx * sn + lz * c });
+      res.spots.forEach((spot) => {
+        const it = spot.item;
+        if (!it?.product_id || !it.product_name) return;
+        const wp = toWorld(spot.lx, spot.lz);
+        const hit = new THREE.Mesh(new THREE.BoxGeometry(spot.w, spot.h, spot.d));
+        hit.position.set(wp.x, spot.ly, wp.z);
+        hit.rotation.y = placed.yaw;
+        hit.userData.targetId = it.id;
+        hit.updateMatrixWorld();
+        hitGroup.add(hit);
+        // the stand point mirrors to the back for back-facing spots; slide it along to face the spot
+        let stand = { x: placed.standX, z: placed.standZ };
+        if (spot.back) stand = { x: 2 * placed.x - placed.standX, z: 2 * placed.z - placed.standZ };
+        const along = toWorld(spot.lx, 0);
+        stand = { x: stand.x + (along.x - placed.x), z: stand.z + (along.z - placed.z) };
         productCount++;
         targets.push({
-          id: shelf.id,
+          id: it.id,
           kind: 'product',
-          title: shelf.product_name,
+          title: it.product_name,
           subtitle: `${dept?.name ?? ''} · ${shelf.aisle_label}`,
-          position: new THREE.Vector3(placed.x, Math.min(1.3, res.h * 0.7), placed.z),
-          stand: { x: placed.standX, z: placed.standZ },
-          shelf,
+          position: new THREE.Vector3(wp.x, Math.min(1.5, spot.ly), wp.z),
+          stand,
+          shelf: it,
           department: dept,
         });
-      }
+      });
     });
 
     if (!dept) {
@@ -826,6 +878,13 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     inst.instanceMatrix.needsUpdate = true;
     inst.computeBoundingSphere();
     root.add(inst);
+    e.mesh = inst;
+  });
+  pendingUnits.forEach(({ item, unit }) => {
+    const list = units.get(item.id) || [];
+    const e = unit.packaging ? packaging.get(unit.packaging.key) : undefined;
+    list.push({ matrix: unit.matrix, size: unit.size, mesh: e?.mesh, index: unit.packaging?.index });
+    units.set(item.id, list);
   });
 
   // soft contact shadows under the lobby objects
@@ -854,6 +913,8 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     targets,
     hitGroup,
     videoScreens,
+    units,
+    modelSlots,
     animate: (t: number, dt: number) => {
       centre.update(t, dt);
       facadeAnim(t);

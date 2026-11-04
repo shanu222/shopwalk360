@@ -1,3 +1,4 @@
+import { spotsFor } from '../layout/fixtureSpots';
 import React, { useEffect, useMemo, useState } from 'react';
 import { X, Star, ShoppingBag, Minus, Plus, Play, Box, Image as ImageIcon, Shirt, MapPin, Check, PackageCheck, AlertTriangle, ShieldCheck, Video, Sparkles, Home as HomeIcon } from 'lucide-react';
 import { AvatarConfig, Product, ProductImage, ProductVariant, Review, StoreShelf, TryOnOverride, ExperienceIntegrations } from '../../../types';
@@ -137,7 +138,7 @@ export const ProductExperiencePanel: React.FC<Props> = ({ shelf, avatar, integra
           <span className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold text-white" style={{ backgroundColor: shelf.theme_color || '#334155' }}>
             <MapPin className="h-3 w-3" /> {formatDeptNumber(shelf.department_number)} {shelf.department_name}
           </span>
-          <span className="hidden text-[11px] text-slate-500 sm:inline">{shelf.aisle_label}{shelf.shelf_level ? ` · Shelf ${shelf.shelf_level}` : ''}</span>
+          <span className="hidden text-[11px] text-slate-500 sm:inline">{shelf.aisle_label}{shelf.tier ? ` · ${spotsFor(shelf.shelf_type)[shelf.tier - 1]?.label || ''}` : ''}</span>
           {p?.is_sample ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800">Sample listing</span> : null}
           <button onClick={onClose} aria-label="Close" className="ml-auto rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"><X className="h-5 w-5" /></button>
         </div>

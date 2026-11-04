@@ -3,6 +3,7 @@ import { StaticBatcher, std, emissive, glass, contactShadowTexture, mat } from '
 import { buildProductModel, parseColorMap, parseDims, resolveColor, garmentSilhouette, buildShoe, ProductModel } from './productModels';
 import { bayTagTexture, labelTexture, simpleScreenTexture } from './signage';
 import { StoreShelf, AvatarConfig } from '../../../types';
+import { unitsFor } from '../layout/fixtureSpots';
 import { createHumanAvatar } from '../avatar/AvatarModel';
 
 export interface FixturePalette {
@@ -13,12 +14,42 @@ export interface FixturePalette {
   bodyRough?: number;
 }
 
+export interface PackagingRef {
+  key: string;
+  index: number;
+}
+
+/** One unit of a product on a shelf that a shopper can take (see StoreEngine.playPick). */
+export interface ShelfUnit {
+  matrix: THREE.Matrix4;
+  size: THREE.Vector3;
+  packaging?: PackagingRef;
+}
+
 export interface FixtureBuildContext {
   batch: StaticBatcher;
   /** packaging instances per product (merged into InstancedMeshes by the builder) */
-  addPackaging: (shelf: StoreShelf, matrix: THREE.Matrix4, size: THREE.Vector3) => void;
+  addPackaging: (shelf: StoreShelf, matrix: THREE.Matrix4, size: THREE.Vector3) => PackagingRef;
+  /** a unit the shopper can pick up */
+  addUnit: (item: StoreShelf, unit: ShelfUnit) => void;
+  /** where an uploaded 3D model (GLB) of the product goes; the engine loads and places it */
+  addModelSlot: (item: StoreShelf, matrix: THREE.Matrix4, maxSize: number) => void;
   palette: FixturePalette;
   lowDetail: boolean;
+}
+
+/** A product spot on a display, in the display's local space (for clicking and walking to it). */
+export interface FixtureSpot {
+  tier: number;
+  item?: StoreShelf;
+  lx: number;
+  ly: number;
+  lz: number;
+  w: number;
+  h: number;
+  d: number;
+  /** the spot faces the back of the display (double-sided gondolas) */
+  back: boolean;
 }
 
 export interface FixtureResult {
@@ -30,6 +61,7 @@ export interface FixtureResult {
   screen?: THREE.Mesh;
   /** extra dynamic objects that must stay separate (e.g. screens with changing textures) */
   dynamic: THREE.Object3D[];
+  spots: FixtureSpot[];
 }
 
 const _m = new THREE.Matrix4();
@@ -87,49 +119,94 @@ function packSize(shelf: StoreShelf): THREE.Vector3 {
 
 const isApparel = (s: StoreShelf) => s.wearable_slot === 'top' || s.wearable_slot === 'bottom';
 
-/** Place merchandise along a shelf line (local coordinates) */
-function merchandise(ctx: FixtureCtxInternal, shelf: StoreShelf, lx0: number, lx1: number, ly: number, lz: number, faceYaw: number, depth: number) {
-  if (!shelf.product_id) return;
+/**
+ * Place `units` of a product along a shelf line (local coordinates), centred on the line.
+ * Uploaded 3D models are placed by the engine; built-in shapes and photo packaging are baked here.
+ * Packaged units in the front row are registered so a shopper can take one.
+ */
+function merchandise(ctx: FixtureCtxInternal, item: StoreShelf | undefined, lx0: number, lx1: number, ly: number, lz: number, faceYaw: number, depth: number, clearance = 0.34) {
+  if (!item?.product_id) return;
   const { p, c } = ctx;
   const width = lx1 - lx0;
-  if (isApparel(shelf)) {
-    const cols = colourList(shelf);
-    const n = Math.max(1, Math.floor(width / 0.36));
-    for (let i = 0; i < n; i++) {
+  const units = unitsFor(ctx.type, item.tier || 1, item.facings);
+  const mid = (lx0 + lx1) / 2;
+  const front = Math.cos(faceYaw) >= 0 ? 1 : -1;
+  if (item.model_3d_url) {
+    const step = Math.min(width / units, 0.5);
+    for (let i = 0; i < units; i++) {
+      // never taller than the gap to the shelf above
+      c.addModelSlot(item, p.matrix(mid + (i - (units - 1) / 2) * step, ly, lz + front * 0.02, faceYaw), Math.max(0.1, Math.min(step * 0.88, clearance)));
+    }
+    return;
+  }
+  if (isApparel(item)) {
+    const cols = colourList(item);
+    const step = Math.min(width / units, 0.36);
+    for (let i = 0; i < units; i++) {
       const col = cols[i % cols.length];
-      const model = buildProductModel({ preset: shelf.model_preset, colorName: col.name, colorMap: parseColorMap(shelf.color_hex_map) });
-      model.group.applyMatrix4(p.matrix(lx0 + (i + 0.5) * (width / n), ly, lz, faceYaw));
+      const model = buildProductModel({ preset: item.model_preset, colorName: col.name, colorMap: parseColorMap(item.color_hex_map) });
+      model.group.applyMatrix4(p.matrix(mid + (i - (units - 1) / 2) * step, ly, lz, faceYaw));
       c.batch.addObject(model.group);
     }
     return;
   }
-  if (shelf.model_preset === 'shoe') {
-    const cols = colourList(shelf);
-    const n = Math.max(1, Math.floor(width / 0.34));
-    for (let i = 0; i < n; i++) {
+  if (item.model_preset === 'shoe') {
+    const cols = colourList(item);
+    const step = Math.min(width / units, 0.34);
+    for (let i = 0; i < units; i++) {
       const col = cols[i % cols.length];
       const sole = /gum/i.test(col.name) ? '#b98b55' : '#ecebe6';
       const shoe = buildShoe(col.hex, sole);
-      shoe.group.applyMatrix4(p.matrix(lx0 + (i + 0.5) * (width / n), ly, lz, faceYaw + Math.PI / 2 - 0.35));
+      shoe.group.applyMatrix4(p.matrix(mid + (i - (units - 1) / 2) * step, ly, lz, faceYaw + Math.PI / 2 - 0.35));
       c.batch.addObject(shoe.group);
     }
     return;
   }
-  const size = packSize(shelf);
-  const n = Math.max(1, Math.floor(width / (size.x + 0.03)));
-  const rows = Math.max(1, Math.min(3, Math.floor(depth / (size.z + 0.02))));
-  for (let i = 0; i < n; i++) {
+  if (item.model_preset) {
+    // built-in 3D shape of the product
+    const step = Math.min(width / units, 0.42);
+    for (let i = 0; i < units; i++) {
+      const model = heroModel(item, i);
+      const s = fitScale(model, Math.min(step * 0.9, clearance));
+      model.group.applyMatrix4(p.matrix(mid + (i - (units - 1) / 2) * step, ly, lz, faceYaw, 0, 0, s));
+      c.batch.addObject(model.group);
+    }
+    return;
+  }
+  // product photo on its packaging; a second row behind when the shelf is deep enough
+  const size = packSize(item);
+  const step = Math.min(width / units, size.x + 0.05);
+  const rows = Math.max(1, Math.min(2, Math.floor(depth / (size.z + 0.02))));
+  for (let i = 0; i < units; i++) {
     for (let r = 0; r < rows; r++) {
-      const zOff = (r - (rows - 1) / 2) * (size.z + 0.015);
-      const m = p.matrix(lx0 + (i + 0.5) * (width / n), ly + size.y / 2, lz + zOff, faceYaw);
-      c.addPackaging(shelf, m, size);
+      // r = 0 is the front row
+      const zOff = front * ((rows - 1) / 2 - r) * (size.z + 0.015);
+      const m = p.matrix(mid + (i - (units - 1) / 2) * step, ly + size.y / 2, lz + zOff, faceYaw);
+      const ref = c.addPackaging(item, m, size);
+      if (r === 0) c.addUnit(item, { matrix: m, size, packaging: ref });
     }
   }
+}
+
+/** One product shown on its own (cabinets, podiums, tables): built-in shape, or uploaded model. */
+function hero(ctx: FixtureCtxInternal, item: StoreShelf, k: number, lx: number, ly: number, lz: number, ry: number, maxSize: number) {
+  const { p, c } = ctx;
+  if (item.model_3d_url) {
+    c.addModelSlot(item, p.matrix(lx, ly, lz, ry), maxSize);
+    return;
+  }
+  const model = heroModel(item, k);
+  const s = fitScale(model, maxSize);
+  model.group.applyMatrix4(p.matrix(lx, ly, lz, ry, 0, 0, s));
+  c.batch.addObject(model.group);
 }
 
 interface FixtureCtxInternal {
   p: Placer;
   c: FixtureBuildContext;
+  type: string;
+  /** the product on a spot (1-based), if the admin put one there */
+  at: (tier: number) => StoreShelf | undefined;
 }
 
 function shadowDecal(c: FixtureBuildContext, p: Placer, w: number, d: number) {
@@ -176,22 +253,24 @@ function gondola(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult {
   add(0.05, H, D, -W / 2, H / 2, 0, body);
   add(0.05, H, D, W / 2, H / 2, 0, body);
   const tiers = [0.48, 0.88, 1.28];
-  tiers.forEach((y) => {
-    [-1, 1].forEach((side) => {
+  const spots: FixtureSpot[] = [];
+  [1, -1].forEach((side) => {
+    tiers.forEach((y, t) => {
       add(W - 0.06, 0.03, D / 2 - 0.05, 0, y, side * (D / 4 + 0.01), shelfM);
       add(W - 0.06, 0.012, 0.012, 0, y - 0.02, side * (D / 2 - 0.02), emissive('#fff3dd', 1.1));
+      // spots 1–3: front shelves bottom → top; 4–6: back shelves
+      const tier = side === 1 ? t + 1 : t + 4;
+      const item = ctx.at(tier);
+      const yaw = side === 1 ? 0 : Math.PI;
+      merchandise(ctx, item, -W / 2 + 0.08, W / 2 - 0.08, y + 0.015, side * (D / 4 + 0.01), yaw, D / 2 - 0.08);
+      if (item) priceLabel(c, p, item, 0, y - 0.065, side * (D / 2 + 0.003), yaw);
+      spots.push({ tier, item, lx: 0, ly: y + 0.18, lz: side * (D / 4), w: W - 0.1, h: 0.36, d: D / 2, back: side === -1 });
     });
   });
   add(W + 0.04, 0.04, D + 0.04, 0, H + 0.02, 0, body);
-  // merchandise both faces (bottom tier holds stock, upper tiers face-out)
-  [-1, 1].forEach((side) => {
-    tiers.forEach((y) => merchandise(ctx, shelf, -W / 2 + 0.08, W / 2 - 0.08, y + 0.015, side * (D / 4 + 0.01), side === 1 ? 0 : Math.PI, D / 2 - 0.08));
-    priceLabel(c, p, shelf, 0, tiers[1] - 0.06, side * (D / 2 + 0.003), side === 1 ? 0 : Math.PI);
-  });
-  // end-cap header with bay tag
   [-1, 1].forEach((side) => bayTag(c, p, shelf, side * (W / 2 + 0.03), H - 0.15, 0, side * Math.PI / 2));
   shadowDecal(c, p, W, D);
-  return { w: W, d: D, h: H, dynamic: [] };
+  return { w: W, d: D, h: H, dynamic: [], spots };
 }
 
 function wallMount(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult {
@@ -211,27 +290,19 @@ function wallMount(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult {
   add(0.06, H, D, W / 2, H / 2, 0, body);
   add(W, 0.06, D, 0, H, 0, body);
   const shelfM = std(c.palette.shelf, 0.45, 0.05);
+  const spots: FixtureSpot[] = [];
   [0.62, 1.1, 1.58, 2.02].forEach((y, i) => {
     add(W - 0.12, 0.028, D - 0.08, 0, y, 0.02, shelfM);
     add(W - 0.14, 0.01, 0.01, 0, y - 0.018, D / 2 - 0.04, emissive('#fff3dd', 1.1));
-    if (shelf.model_preset === 'shoe' || isApparel(shelf) || i % 2 === 0) merchandise(ctx, shelf, -W / 2 + 0.12, W / 2 - 0.12, y + 0.014, 0.02, 0, D - 0.12);
-    else if (shelf.product_id) {
-      // hero items on alternate shelves
-      const cols = colourList(shelf);
-      const n = Math.min(4, cols.length * 2);
-      for (let k = 0; k < n; k++) {
-        const model = heroModel(shelf, k);
-        const fit = fitScale(model, 0.38);
-        model.group.applyMatrix4(p.matrix(-W / 2 + 0.3 + k * ((W - 0.6) / Math.max(1, n - 1)), y + 0.014, 0.04, 0, 0, 0, fit));
-        c.batch.addObject(model.group);
-      }
-    }
+    const item = ctx.at(i + 1);
+    merchandise(ctx, item, -W / 2 + 0.12, W / 2 - 0.12, y + 0.014, 0.02, 0, D - 0.12, i === 3 ? 0.4 : 0.42);
+    if (item) priceLabel(c, p, item, 0, y - 0.07, D / 2 + 0.005);
+    spots.push({ tier: i + 1, item, lx: 0, ly: y + 0.2, lz: 0.02, w: W - 0.2, h: 0.4, d: D - 0.1, back: false });
   });
-  priceLabel(c, p, shelf, 0, 1.1 - 0.07, D / 2 + 0.005);
   bayTag(c, p, shelf, W / 2 - 0.3, H - 0.12, D / 2 + 0.005);
   // backlit header strip in department colour
   add(W - 0.2, 0.05, 0.02, 0, H - 0.04, D / 2 - 0.01, emissive(c.palette.accent, 0.9));
-  return { w: W, d: D, h: H, dynamic: [] };
+  return { w: W, d: D, h: H, dynamic: [], spots };
 }
 
 /** Uniform scale so the model's largest dimension fits `maxSize` — only ever scales DOWN */
@@ -257,7 +328,6 @@ function glassCabinet(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult
   add(W + 0.02, 0.02, D + 0.02, 0, baseH + 0.01, 0, std(c.palette.metal, 0.3, 0.9));
   add(W - 0.1, 0.04, D - 0.12, 0, baseH + 0.04, 0, std('#efe9df', 0.95)); // velvet display bed
   add(W - 0.1, 0.01, 0.01, 0, baseH + 0.36, D / 2 - 0.06, emissive('#fff3dd', 1.2));
-  // glass hood
   const gm = glass('#e9f1f4', 0.14);
   add(W, 0.4, 0.01, 0, baseH + 0.2, D / 2, gm);
   add(W, 0.4, 0.01, 0, baseH + 0.2, -D / 2, gm);
@@ -265,20 +335,18 @@ function glassCabinet(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult
   add(0.01, 0.4, D, W / 2, baseH + 0.2, 0, gm);
   add(W, 0.01, D, 0, baseH + 0.4, 0, gm);
   [-1, 1].forEach((sx) => [-1, 1].forEach((sz) => add(0.015, 0.4, 0.015, sx * W / 2, baseH + 0.2, sz * D / 2, std(c.palette.metal, 0.3, 0.9))));
-  if (shelf.product_id) {
-    const cols = colourList(shelf);
-    const n = Math.min(3, Math.max(1, cols.length));
-    for (let k = 0; k < n; k++) {
-      const model = heroModel(shelf, k);
-      const s = fitScale(model, 0.3);
-      model.group.applyMatrix4(p.matrix(-0.4 + k * 0.4, baseH + 0.06, 0, 0.25, 0, 0, s));
-      c.batch.addObject(model.group);
+  const spots: FixtureSpot[] = [];
+  [-0.4, 0, 0.4].forEach((x, i) => {
+    const item = ctx.at(i + 1);
+    if (item) {
+      hero(ctx, item, 0, x, baseH + 0.06, 0, 0.25, 0.3);
+      priceLabel(c, p, item, x, baseH - 0.12, D / 2 + 0.004);
     }
-    priceLabel(c, p, shelf, 0, baseH - 0.12, D / 2 + 0.004);
-  }
+    spots.push({ tier: i + 1, item, lx: x, ly: baseH + 0.2, lz: 0, w: 0.4, h: 0.38, d: D - 0.1, back: false });
+  });
   bayTag(c, p, shelf, -W / 2 + 0.22, 0.2, D / 2 + 0.004);
   shadowDecal(c, p, W, D);
-  return { w: W, d: D, h: baseH + 0.4, dynamic: [] };
+  return { w: W, d: D, h: baseH + 0.4, dynamic: [], spots };
 }
 
 function islandDisplay(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult {
@@ -294,26 +362,27 @@ function islandDisplay(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResul
   add(new THREE.CylinderGeometry(0.42, 0.44, 0.38, 40), body, -0.12, 0.72, -0.15);
   add(new THREE.CylinderGeometry(0.44, 0.44, 0.025, 40), top, -0.12, 0.92, -0.15);
   add(new THREE.TorusGeometry(0.8, 0.008, 6, 64), emissive('#fff2da', 1.1), 0, 0.5, 0);
-  if (shelf.product_id) {
-    const furniture = shelf.model_preset === 'armchair' || shelf.model_preset === 'side_table';
-    const hero = heroModel(shelf, 0);
-    const s = furniture ? fitScale(hero, 0.9) : fitScale(hero, 0.45);
-    hero.group.applyMatrix4(p.matrix(-0.12, 0.935, -0.15, 0.4, 0, 0, s));
-    c.batch.addObject(hero.group);
-    const cols = colourList(shelf);
-    if (!furniture) {
-      for (let k = 1; k < Math.min(4, cols.length + 1); k++) {
-        const m = heroModel(shelf, k);
-        const sc = fitScale(m, 0.3);
-        const a = -0.6 + k * 0.7;
-        m.group.applyMatrix4(p.matrix(Math.sin(a) * 0.55 + 0.1, 0.53, Math.cos(a) * 0.45, -a * 0.5, 0, 0, sc));
-        c.batch.addObject(m.group);
-      }
-    }
-    priceLabel(c, p, shelf, 0.35, 0.54, 0.52, 0, -Math.PI / 2.6);
+  const spots: FixtureSpot[] = [];
+  const feature = ctx.at(1);
+  if (feature) {
+    const furniture = feature.model_preset === 'armchair' || feature.model_preset === 'side_table';
+    hero(ctx, feature, 0, -0.12, 0.935, -0.15, 0.4, furniture ? 0.9 : 0.45);
+    priceLabel(c, p, feature, 0.35, 0.54, 0.52, 0, -Math.PI / 2.6);
   }
+  spots.push({ tier: 1, item: feature, lx: -0.12, ly: 1.15, lz: -0.15, w: 0.8, h: 0.45, d: 0.8, back: false });
+  // lower ring: left and right of the front
+  [[2, [-1.25, -0.85, -0.45]], [3, [0.45, 0.85, 1.25]]].forEach(([tier, angles]) => {
+    const item = ctx.at(tier as number);
+    if (item) {
+      const n = unitsFor(ctx.type, tier as number, item.facings);
+      (angles as number[]).slice(0, n).forEach((a, k) => hero(ctx, item, k, Math.sin(a) * 0.6, 0.53, Math.cos(a) * 0.55, -a * 0.5, 0.26));
+    }
+    const am = (angles as number[])[1];
+    spots.push({ tier: tier as number, item, lx: Math.sin(am) * 0.58, ly: 0.7, lz: Math.cos(am) * 0.5, w: 0.7, h: 0.35, d: 0.4, back: false });
+  });
+  void shelf;
   shadowDecal(c, p, 1.6, 1.6);
-  return { w: 1.6, d: 1.6, h: 1.2, dynamic: [] };
+  return { w: 1.6, d: 1.6, h: 1.2, dynamic: [], spots };
 }
 
 function demoTable(ctx: FixtureCtxInternal, shelf: StoreShelf, kitchen = false): FixtureResult {
@@ -335,23 +404,19 @@ function demoTable(ctx: FixtureCtxInternal, shelf: StoreShelf, kitchen = false):
     add(0.5, 0.02, 0.38, 0.85, H + 0.001, 0, std('#b8bcc0', 0.2, 0.9));
     add(0.03, 0.32, 0.03, 0.85, H + 0.16, -0.25, std('#b8bcc0', 0.2, 0.9));
   }
-  if (shelf.product_id) {
-    const hero = heroModel(shelf, 0);
-    hero.group.applyMatrix4(p.matrix(-0.2, H, 0.05, 0.5));
-    c.batch.addObject(hero.group);
-    const cols = colourList(shelf);
-    for (let k = 1; k < Math.min(3, cols.length); k++) {
-      const m = heroModel(shelf, k);
-      const s = fitScale(m, 0.35);
-      m.group.applyMatrix4(p.matrix(-0.2 - k * 0.45, H, -0.18, 0.3, 0, 0, s));
-      c.batch.addObject(m.group);
+  const spots: FixtureSpot[] = [];
+  [-W / 4, W / 4].forEach((cx, i) => {
+    const item = ctx.at(i + 1);
+    if (item) {
+      const n = unitsFor(ctx.type, i + 1, item.facings);
+      for (let k = 0; k < n; k++) hero(ctx, item, k, cx + (k - (n - 1) / 2) * 0.4, H, k === 0 ? 0.05 : -0.15, 0.4, k === 0 ? 0.42 : 0.32);
+      priceLabel(c, p, item, cx, H + 0.06, D / 2 - 0.05, 0, -Math.PI / 3);
     }
-    priceLabel(c, p, shelf, 0.6, H + 0.06, D / 2 - 0.05, 0, -Math.PI / 3);
-  }
-  // no screen behind the table: the department's full-wall promo screen is behind it
+    spots.push({ tier: i + 1, item, lx: cx, ly: H + 0.22, lz: 0, w: W / 2 - 0.1, h: 0.45, d: D - 0.1, back: false });
+  });
   bayTag(c, p, shelf, W / 2 - 0.25, H - 0.16, D / 2 + 0.004);
   shadowDecal(c, p, W, D);
-  return { w: W, d: D + 0.1, h: H, dynamic: [] };
+  return { w: W, d: D + 0.1, h: H, dynamic: [], spots };
 }
 
 function mannequinFixture(ctx: FixtureCtxInternal, shelf: StoreShelf, palette: FixturePalette): FixtureResult {
@@ -359,17 +424,19 @@ function mannequinFixture(ctx: FixtureCtxInternal, shelf: StoreShelf, palette: F
   const plinth = new THREE.CylinderGeometry(0.5, 0.52, 0.12, 40);
   c.batch.addMatrix(plinth, std(palette.body, 0.4, 0.1), p.matrix(0, 0.06, 0));
   plinth.dispose();
-  const cols = colourList(shelf);
-  const col = cols[0];
+  const item = ctx.at(1);
+  // an undressed mannequin stays neutral until the admin puts a product on it
+  const col = item ? colourList(item)[0] : { name: '', hex: '#e9e6df' };
+  const slot = item?.wearable_slot;
   const cfg: AvatarConfig = {
-    gender: shelf.wearable_slot === 'bottom' ? 'female' : 'male',
+    gender: slot === 'bottom' ? 'female' : 'male',
     skinTone: '#efebe4',
     hairColor: '#efebe4',
     hairStyle: 'buzz',
-    outfitColor: shelf.wearable_slot === 'top' ? col.hex : '#e9e6df',
-    pantsColor: shelf.wearable_slot === 'bottom' ? col.hex : '#2f3238',
+    outfitColor: slot === 'top' ? col.hex : '#e9e6df',
+    pantsColor: slot === 'bottom' ? col.hex : '#d9d6cf',
     shoesColor: '#2a2b2e',
-    topStyle: shelf.wearable_slot === 'top' ? 'shirt' : 'tee',
+    topStyle: slot === 'top' ? 'shirt' : 'tee',
     bottomStyle: 'trousers',
     shoeStyle: 'formal',
     heightScale: 1.0,
@@ -384,8 +451,9 @@ function mannequinFixture(ctx: FixtureCtxInternal, shelf: StoreShelf, palette: F
   holder.applyMatrix4(p.matrix(0, 0, 0));
   c.batch.addObject(holder);
   m.dispose();
-  if (shelf.product_name) priceLabel(c, p, shelf, 0.35, 0.13, 0.48, 0, -Math.PI / 2.4);
-  return { w: 1.0, d: 1.0, h: 1.9, dynamic: [] };
+  if (item) priceLabel(c, p, item, 0.35, 0.13, 0.48, 0, -Math.PI / 2.4);
+  void shelf;
+  return { w: 1.0, d: 1.0, h: 1.9, dynamic: [], spots: [{ tier: 1, item, lx: 0, ly: 1.1, lz: 0, w: 0.7, h: 1.6, d: 0.5, back: false }] };
 }
 
 function clothingRack(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult {
@@ -401,20 +469,26 @@ function clothingRack(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult
     add(new THREE.CylinderGeometry(0.016, 0.016, 1.55, 12), metal, s * W / 2, 0.775, 0);
     add(new THREE.BoxGeometry(0.06, 0.03, 0.5), metal, s * W / 2, 0.015, 0);
   });
-  if (shelf.product_id) {
-    const cols = colourList(shelf);
-    const kind = shelf.wearable_slot === 'bottom' ? 'bottom' : 'top';
-    const n = 7;
-    for (let i = 0; i < n; i++) {
-      const g = garmentSilhouette(kind, cols[i % cols.length].hex);
-      g.applyMatrix4(p.matrix(-W / 2 + 0.2 + i * ((W - 0.4) / (n - 1)), 1.5, 0, Math.PI / 2));
-      c.batch.addObject(g);
+  const spots: FixtureSpot[] = [];
+  [-1, 1].forEach((half, i) => {
+    const item = ctx.at(i + 1);
+    const cx = half * W / 4;
+    if (item) {
+      const cols = colourList(item);
+      const kind = item.wearable_slot === 'bottom' ? 'bottom' : 'top';
+      const n = unitsFor(ctx.type, i + 1, item.facings);
+      for (let k = 0; k < n; k++) {
+        const g = garmentSilhouette(kind, cols[k % cols.length].hex);
+        g.applyMatrix4(p.matrix(cx + (k - (n - 1) / 2) * 0.17, 1.5, 0, Math.PI / 2));
+        c.batch.addObject(g);
+      }
+      priceLabel(c, p, item, half * (W / 2 + 0.02), 1.25, 0, half * Math.PI / 2);
     }
-    priceLabel(c, p, shelf, W / 2 + 0.02, 1.25, 0, Math.PI / 2);
-  }
-  bayTag(c, p, shelf, -W / 2 - 0.02, 1.25, 0, -Math.PI / 2);
+    spots.push({ tier: i + 1, item, lx: cx, ly: 1.15, lz: 0, w: W / 2 - 0.05, h: 0.8, d: 0.5, back: false });
+  });
+  bayTag(c, p, shelf, 0, 1.62, 0.02);
   shadowDecal(c, p, W, 0.5);
-  return { w: W + 0.1, d: 0.6, h: 1.6, dynamic: [] };
+  return { w: W + 0.1, d: 0.6, h: 1.6, dynamic: [], spots };
 }
 
 function vanity(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult {
@@ -429,7 +503,6 @@ function vanity(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult {
   };
   add(W, H, D, 0, H / 2, 0, std(c.palette.body, 0.4, 0.05));
   add(W + 0.04, 0.03, D + 0.04, 0, H + 0.015, 0, std(c.palette.shelf, 0.2, 0.05));
-  // mirrors
   [-0.5, 0.5].forEach((x) => {
     const ring = new THREE.TorusGeometry(0.3, 0.018, 8, 48);
     c.batch.addMatrix(ring, emissive('#fff1e2', 1.3), p.matrix(x, H + 0.55, -D / 2 + 0.05));
@@ -438,55 +511,49 @@ function vanity(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult {
     c.batch.addMatrix(mir, std('#c9d2d8', 0.02, 1.0), p.matrix(x, H + 0.55, -D / 2 + 0.045));
     mir.dispose();
   });
-  if (shelf.product_id) {
-    const cols = colourList(shelf);
-    for (let i = 0; i < 8; i++) {
-      const m = heroModel(shelf, i);
-      m.group.applyMatrix4(p.matrix(-0.8 + i * 0.22, H + 0.03, 0.12));
-      c.batch.addObject(m.group);
-    }
-    void cols;
-    priceLabel(c, p, shelf, 0, H - 0.1, D / 2 + 0.004);
-  }
+  const spots: FixtureSpot[] = [];
+  [-0.5, 0.5].forEach((cx, i) => {
+    const item = ctx.at(i + 1);
+    merchandise(ctx, item, cx - 0.45, cx + 0.45, H + 0.03, 0.1, 0, D - 0.2, 0.4);
+    if (item) priceLabel(c, p, item, cx, H - 0.1, D / 2 + 0.004);
+    spots.push({ tier: i + 1, item, lx: cx, ly: H + 0.15, lz: 0.08, w: 0.9, h: 0.3, d: D - 0.1, back: false });
+  });
   bayTag(c, p, shelf, -W / 2 + 0.22, 0.2, D / 2 + 0.004);
   shadowDecal(c, p, W, D);
-  return { w: W, d: D, h: 1.6, dynamic: [] };
+  return { w: W, d: D, h: 1.6, dynamic: [], spots };
 }
 
 function roomSet(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult {
   const { p, c } = ctx;
-  // rug
   const rug = new THREE.PlaneGeometry(2.4, 1.8);
   c.batch.addMatrix(rug, std('#d9d0c1', 0.98), p.matrix(0, 0.008, 0, 0, -Math.PI / 2));
   rug.dispose();
   const border = new THREE.PlaneGeometry(2.5, 1.9);
   c.batch.addMatrix(border, std('#8a7a63', 0.98), p.matrix(0, 0.006, 0, 0, -Math.PI / 2));
   border.dispose();
-  if (shelf.product_id) {
-    const hero = heroModel(shelf, 0);
-    hero.group.applyMatrix4(p.matrix(-0.15, 0.01, -0.1, 0.35));
-    c.batch.addObject(hero.group);
-    // dimension plaque from the product's real dimensions only
-    const dims = parseDims(shelf.dimensions_json);
+  const item = ctx.at(1);
+  if (item) {
+    hero(ctx, item, 0, -0.15, 0.01, -0.1, 0.35, 1.6);
+    const dims = parseDims(item.dimensions_json);
     if (dims) {
-      const key = `dims:${shelf.product_id}`;
-      const m = mat(key, () => new THREE.MeshBasicMaterial({ map: labelTexture(shelf.product_name!.replace(/\s*\(Sample Listing\)/, ''), `W ${dims.w} × H ${dims.h} × D ${dims.d} cm`, c.palette.accent) }));
+      const key = `dims:${item.product_id}`;
+      const m = mat(key, () => new THREE.MeshBasicMaterial({ map: labelTexture(item.product_name!.replace(/\s*\(Sample Listing\)/, ''), `W ${dims.w} × H ${dims.h} × D ${dims.d} cm`, c.palette.accent) }));
       const g = new THREE.PlaneGeometry(0.42, 0.13);
       c.batch.addMatrix(g, m, p.matrix(0.85, 0.42, 0.75, -0.3, -0.5));
       g.dispose();
       const stand = new THREE.CylinderGeometry(0.012, 0.012, 0.4, 8);
       c.batch.addMatrix(stand, std(c.palette.metal, 0.3, 0.9), p.matrix(0.85, 0.2, 0.72));
       stand.dispose();
-    } else priceLabel(c, p, shelf, 0.85, 0.42, 0.75, -0.3, -0.5);
+    } else priceLabel(c, p, item, 0.85, 0.42, 0.75, -0.3, -0.5);
   }
-  // floor lamp for ambience
   const pole = new THREE.CylinderGeometry(0.012, 0.012, 1.5, 8);
   c.batch.addMatrix(pole, std('#1f2023', 0.4, 0.6), p.matrix(-1.05, 0.75, -0.7));
   pole.dispose();
   const shade = new THREE.CylinderGeometry(0.16, 0.2, 0.24, 24, 1, true);
   c.batch.addMatrix(shade, emissive('#ffe6c4', 0.85), p.matrix(-1.05, 1.55, -0.7));
   shade.dispose();
-  return { w: 2.5, d: 1.9, h: 1.7, dynamic: [] };
+  void shelf;
+  return { w: 2.5, d: 1.9, h: 1.7, dynamic: [], spots: [{ tier: 1, item, lx: -0.15, ly: 0.5, lz: -0.1, w: 1.6, h: 1.0, d: 1.4, back: false }] };
 }
 
 function fittingStation(ctx: FixtureCtxInternal, shelf: StoreShelf, palette: FixturePalette): FixtureResult {
@@ -496,38 +563,30 @@ function fittingStation(ctx: FixtureCtxInternal, shelf: StoreShelf, palette: Fix
     c.batch.addMatrix(g, m, p.matrix(x, y, z, ry));
     g.dispose();
   };
-  // platform
   add(2.8, 0.08, 1.6, 0, 0.04, 0, std(palette.shelf, 0.35, 0.05));
-  // three-panel full-length mirrors
   [-0.95, 0, 0.95].forEach((x, i) => {
     const ry = i === 0 ? 0.35 : i === 2 ? -0.35 : 0;
     add(0.86, 2.1, 0.05, x, 1.13, -0.7 + Math.abs(x) * 0.18, std(palette.metal, 0.3, 0.8), ry);
     add(0.78, 2.0, 0.01, x + Math.sin(ry) * 0.03, 1.13, -0.67 + Math.abs(x) * 0.18, std('#cfd8de', 0.02, 1.0), ry);
   });
-  // vertical light bars
   [-1.42, 1.42].forEach((x) => add(0.04, 2.0, 0.04, x, 1.1, -0.55, emissive('#fff2e2', 1.2)));
-  // interactive screen
+  const item = ctx.at(1);
   const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 0.6), new THREE.MeshBasicMaterial({ color: '#111' }));
   screen.applyMatrix4(p.matrix(1.05, 1.35, 0.28, -0.8));
   add(1.12, 0.68, 0.04, 1.06, 1.35, 0.26, std('#0e0f11', 0.4, 0.3), -0.8);
   add(0.05, 1.1, 0.05, 1.1, 0.6, 0.2, std(palette.metal, 0.3, 0.8));
-  const tex = simpleScreenTexture(shelf.featured_label || 'Virtual try-on', [shelf.product_name ? `Try ${shelf.product_name.replace(/\s*\(Sample Listing\)/, '')}` : 'Select a product to try', 'Choose “Explore Product” → Try-On'], palette.accent, 768, 460);
+  const name = item?.product_name ? item.product_name.replace(/\s*\(Sample Listing\)/, '') : '';
+  const tex = simpleScreenTexture(shelf.featured_label || 'Virtual try-on', [name ? `Try ${name}` : 'Products arrive here soon', 'Choose “Explore Product” → Try-On'], palette.accent, 768, 460);
   (screen.material as THREE.MeshBasicMaterial).map = tex;
   (screen.material as THREE.MeshBasicMaterial).color.set('#ffffff');
-  // stool
   const stool = new THREE.CylinderGeometry(0.2, 0.18, 0.46, 24);
   c.batch.addMatrix(stool, std(palette.accent, 0.8), p.matrix(-1.0, 0.31, 0.45));
   stool.dispose();
-  if (shelf.product_id && shelf.wearable_slot !== 'top' && shelf.wearable_slot !== 'bottom') {
-    const hero = heroModel(shelf, 0);
-    const pod = new THREE.CylinderGeometry(0.18, 0.18, 1.0, 32);
-    c.batch.addMatrix(pod, std(palette.body, 0.4, 0.1), p.matrix(0.6, 0.5, 0.45));
-    pod.dispose();
-    const s = fitScale(hero, 0.3);
-    hero.group.applyMatrix4(p.matrix(0.6, 1.0, 0.45, 0.3, 0, 0, s));
-    c.batch.addObject(hero.group);
-  }
-  return { w: 2.9, d: 1.7, h: 2.2, screen, dynamic: [screen] };
+  const pod = new THREE.CylinderGeometry(0.18, 0.18, 1.0, 32);
+  c.batch.addMatrix(pod, std(palette.body, 0.4, 0.1), p.matrix(0.6, 0.5, 0.45));
+  pod.dispose();
+  if (item && item.wearable_slot !== 'top' && item.wearable_slot !== 'bottom') hero(ctx, item, 0, 0.6, 1.0, 0.45, 0.3, 0.3);
+  return { w: 2.9, d: 1.7, h: 2.2, screen, dynamic: [screen], spots: [{ tier: 1, item, lx: 0.6, ly: 1.15, lz: 0.45, w: 0.5, h: 0.4, d: 0.5, back: false }] };
 }
 
 function shoeWall(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult {
@@ -542,31 +601,49 @@ function shoeWall(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult {
     g.dispose();
   };
   add(W, H, 0.05, 0, H / 2, -D / 2, body);
-  const cols = colourList(shelf);
+  const spots: FixtureSpot[] = [];
   for (let row = 0; row < 5; row++) {
     const y = 0.45 + row * 0.42;
+    const item = ctx.at(row + 1);
+    const n = item ? unitsFor(ctx.type, row + 1, item.facings) : 0;
+    const cols = item ? colourList(item) : [];
     for (let col = 0; col < 5; col++) {
       const x = -W / 2 + 0.27 + col * 0.49;
       add(0.38, 0.014, 0.24, x, y, -0.02, std(c.palette.shelf, 0.35, 0.05), -0.18);
       add(0.36, 0.008, 0.008, x, y - 0.012, 0.1, emissive('#fff3dd', 1));
-      if (shelf.product_id) {
-        const cl = cols[(row + col) % cols.length];
-        const shoe = buildShoe(cl.hex, /gum/i.test(cl.name) ? '#b98b55' : '#ecebe6');
-        shoe.group.applyMatrix4(p.matrix(x, y + 0.03, -0.02, Math.PI / 2 - 0.5, -0.18));
-        c.batch.addObject(shoe.group);
+      if (item && col < n) {
+        if (item.model_3d_url) c.addModelSlot(item, p.matrix(x, y + 0.03, -0.02), 0.32);
+        else {
+          const cl = cols[col % cols.length];
+          const shoe = buildShoe(cl.hex, /gum/i.test(cl.name) ? '#b98b55' : '#ecebe6');
+          shoe.group.applyMatrix4(p.matrix(x, y + 0.03, -0.02, Math.PI / 2 - 0.5, -0.18));
+          c.batch.addObject(shoe.group);
+        }
       }
     }
+    if (item) priceLabel(c, p, item, W / 2 - 0.2, y - 0.08, 0.12);
+    spots.push({ tier: row + 1, item, lx: 0, ly: y + 0.15, lz: 0, w: W - 0.1, h: 0.36, d: D, back: false });
   }
-  if (shelf.product_id) priceLabel(c, p, shelf, 0, 0.22, 0);
   bayTag(c, p, shelf, W / 2 - 0.25, H - 0.1, -D / 2 + 0.03);
-  return { w: W, d: D + 0.1, h: H, dynamic: [] };
+  return { w: W, d: D + 0.1, h: H, dynamic: [], spots };
 }
 
 /* ============================================================================================== */
 
-export function buildFixture(c: FixtureBuildContext, shelf: StoreShelf, x: number, z: number, yaw: number): FixtureResult {
-  const ctx: FixtureCtxInternal = { p: new Placer(x, z, yaw), c };
-  switch (shelf.shelf_type) {
+/**
+ * Build one display. `items` are the products the admin put on its spots (each row carries the
+ * product's data plus `tier` = spot and `facings` = units to show). Empty spots stay empty.
+ */
+export function buildFixture(c: FixtureBuildContext, shelf: StoreShelf, items: StoreShelf[], x: number, z: number, yaw: number): FixtureResult {
+  const type = shelf.shelf_type || 'gondola';
+  const ctx: FixtureCtxInternal = {
+    p: new Placer(x, z, yaw),
+    c,
+    type,
+    // only real, published products (a row without a product name is never drawn)
+    at: (tier) => items.find((it) => it.product_id && it.product_name && (it.tier || 1) === tier),
+  };
+  switch (type) {
     case 'wall_mount': return wallMount(ctx, shelf);
     case 'glass_cabinet': return glassCabinet(ctx, shelf);
     case 'island_display': case 'endcap_promo': return islandDisplay(ctx, shelf);

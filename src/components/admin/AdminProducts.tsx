@@ -168,10 +168,14 @@ export const AdminProducts: React.FC<AdminProductsProps> = ({ categories }) => {
       return;
     }
     try {
-      await fetch(`/api/admin/products/${id}`, { method: 'DELETE' });
+      const r = await fetch(`/api/admin/products/${id}`, { method: 'DELETE' });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) alert(d.error || 'The product could not be removed.');
+      else if (d.hidden) alert(d.message);
       fetchProducts();
     } catch (err) {
       console.error(err);
+      alert('The product could not be removed. Check your connection and try again.');
     }
   };
 

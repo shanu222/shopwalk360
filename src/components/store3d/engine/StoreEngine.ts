@@ -1,7 +1,7 @@
 import { mediaUrl, screenMediaUrl } from '../../../lib/api';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { buildStore, BuiltStore, InteractiveTarget, VideoScreen } from '../builder/storeBuilder';
+import { buildStore, BuiltStore, InteractiveTarget, VideoScreen, PickUnit } from '../builder/storeBuilder';
 import { skyTexture, setMaxAnisotropy, contactShadowTexture } from '../builder/materials';
 import { createHumanAvatar, AvatarRig, normaliseAvatarConfig } from '../avatar/AvatarModel';
 import { createGlbAvatar, getGLTFLoader } from '../avatar/glbAvatar';
@@ -195,7 +195,8 @@ export class StoreEngine {
   }
 
   // pick-from-shelf → basket animation
-  private pickAnim: { mesh: THREE.Mesh; t: number; from: THREE.Vector3; faceYaw: number | null } | null = null;
+  private pickAnim: { mesh: THREE.Object3D; t: number; from: THREE.Vector3; faceYaw: number | null; owned: boolean } | null = null;
+  private restockTimers = new Set<number>();
   private basketShown = 0;
   private basketTarget = 0;
 
@@ -301,36 +302,40 @@ export class StoreEngine {
 
   /** Real product models uploaded by the admin are shown on a display stand in front of their shelf. */
   private productModels: { obj: THREE.Object3D; spin: boolean; baseYaw: number }[] = [];
+  /**
+   * Uploaded 3D models (GLB) of products are placed on their shelf spots, one per unit the admin
+   * chose to show, at the product's real size when its dimensions are given. Each model file is
+   * downloaded once and copied for every unit.
+   */
   private async loadProductModels() {
     const store = this.store;
-    if (!store) return;
-    const seen = new Set<string>();
-    const jobs = store.targets.filter((t) => {
-      const sh = t.shelf;
-      if (!sh?.model_3d_url || seen.has(sh.id)) return false;
-      seen.add(sh.id);
-      return true;
-    });
+    if (!store || !store.modelSlots.length) return;
     const loader = getGLTFLoader(this.renderer);
-    const stoneM = new THREE.MeshStandardMaterial({ color: '#efeae0', roughness: 0.35 });
-    const brassM = new THREE.MeshStandardMaterial({ color: '#c9a35c', metalness: 1, roughness: 0.25 });
-    for (const t of jobs) {
+    const byUrl = new Map<string, typeof store.modelSlots>();
+    store.modelSlots.forEach((s) => {
+      const url = s.shelf.model_3d_url!;
+      byUrl.set(url, [...(byUrl.get(url) || []), s]);
+    });
+    for (const [url, slots] of byUrl) {
       if (this.disposed || this.store !== store) return;
-      const sh = t.shelf!;
+      let source: THREE.Object3D;
       try {
-        const gltf = await loader.loadAsync(mediaUrl(sh.model_3d_url!));
-        if (this.disposed || this.store !== store) return;
-        const model = gltf.scene;
-        model.traverse((o) => {
-          const m = o as THREE.Mesh;
-          if (m.isMesh) {
-            m.castShadow = this.quality !== 'low';
-            m.receiveShadow = true;
-          }
-        });
-        // fit: real dimensions when the admin gave them, otherwise a standard display size
-        const box = new THREE.Box3().setFromObject(model);
-        const size = box.getSize(new THREE.Vector3());
+        source = (await loader.loadAsync(mediaUrl(url))).scene;
+      } catch {
+        continue; // a model that fails to load simply is not shown
+      }
+      if (this.disposed || this.store !== store) return;
+      source.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh) {
+          m.castShadow = this.quality !== 'low';
+          m.receiveShadow = true;
+        }
+      });
+      const raw = new THREE.Box3().setFromObject(source).getSize(new THREE.Vector3());
+      const modelMax = Math.max(raw.x, raw.y, raw.z) || 1;
+      for (const slot of slots) {
+        const sh = slot.shelf;
         let dims: { w?: number; h?: number; d?: number } | null = null;
         try {
           dims = sh.dimensions_json ? JSON.parse(sh.dimensions_json) : null;
@@ -338,44 +343,23 @@ export class StoreEngine {
           dims = null;
         }
         const realMax = dims ? Math.max(Number(dims.w) || 0, Number(dims.h) || 0, Number(dims.d) || 0) / 100 : 0;
-        const modelMax = Math.max(size.x, size.y, size.z) || 1;
-        const targetMax = realMax > 0 ? realMax : 0.32;
-        const scale = (targetMax / modelMax) * (Number(sh.model_scale) > 0 ? Number(sh.model_scale) : 1);
+        // real size when known (never larger than the spot allows), otherwise fill the spot
+        const target = realMax > 0 ? Math.min(realMax, slot.maxSize) : slot.maxSize * 0.92;
+        const scale = (target / modelMax) * (Number(sh.model_scale) > 0 ? Number(sh.model_scale) : 1);
+        const model = source.clone(true);
         model.scale.setScalar(scale);
+        model.rotation.y = THREE.MathUtils.degToRad(Number(sh.model_rotation_deg) || 0);
         const fitted = new THREE.Box3().setFromObject(model);
         const c = fitted.getCenter(new THREE.Vector3());
         model.position.set(-c.x, -fitted.min.y, -c.z);
-        const large = modelMax * scale > 0.7;
-
         const holder = new THREE.Group();
         holder.add(model);
-        const stand = new THREE.Group();
-        // place between the fixture and where the shopper stands
-        const fx = t.position.x;
-        const fz = t.position.z;
-        // beside the shopper's standing spot, not in it
-        const k = large ? 0.42 : 0.4;
-        const vx = t.stand.x - fx;
-        const vz = t.stand.z - fz;
-        const vl = Math.hypot(vx, vz) || 1;
-        const side = large ? 0 : 0.95;
-        stand.position.set(fx + vx * k + (-vz / vl) * side, 0, fz + vz * k + (vx / vl) * side);
-        const faceYaw = Math.atan2(t.stand.x - fx, t.stand.z - fz);
-        const baseYaw = faceYaw + THREE.MathUtils.degToRad(Number(sh.model_rotation_deg) || 0);
-        holder.rotation.y = baseYaw;
-        if (!large) {
-          const ped = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, 0.95, 40), stoneM);
-          ped.position.y = 0.475;
-          const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.03, 40), brassM);
-          cap.position.y = 0.965;
-          stand.add(ped, cap);
-          holder.position.y = 0.98;
-        }
-        stand.add(holder);
-        this.scene.add(stand);
-        this.productModels.push({ obj: holder, spin: !large, baseYaw });
-      } catch {
-        /* a model that fails to load simply isn't shown; the shelf packaging remains */
+        holder.applyMatrix4(slot.matrix);
+        this.scene.add(holder);
+        this.productModels.push({ obj: holder, spin: false, baseYaw: holder.rotation.y });
+        const list = store.units.get(slot.itemId) || [];
+        list.push({ matrix: slot.matrix.clone(), size: fitted.getSize(new THREE.Vector3()), object: holder });
+        store.units.set(slot.itemId, list);
       }
     }
   }
@@ -443,6 +427,10 @@ export class StoreEngine {
   }
 
   /** The avatar takes the product from the shelf and drops it into the basket. */
+  /**
+   * The shopper takes the product: one real unit leaves its spot on the shelf, travels to the hand,
+   * then into the basket. The shelf is restocked a minute later, as staff would.
+   */
   playPick(opts: { shelfId?: string; productId?: string; imageUrl?: string } = {}) {
     storeAudio.pick();
     const avatar = this.avatar;
@@ -461,9 +449,32 @@ export class StoreEngine {
         }
       }
     }
+    const near = !!target && Math.hypot(target.position.x - this.pos.x, target.position.z - this.pos.z) < 5;
     let from: THREE.Vector3;
     let faceYaw: number | null = null;
-    if (target && Math.hypot(target.position.x - this.pos.x, target.position.z - this.pos.z) < 5) {
+    let carried: THREE.Object3D | null = null;
+    let owned = true;
+    // take the unit nearest to the shopper from that spot
+    const unit = near && target ? this.takeUnit(target.id) : null;
+    if (unit) {
+      from = new THREE.Vector3();
+      if (unit.object) unit.object.getWorldPosition(from);
+      else from.setFromMatrixPosition(unit.matrix);
+      faceYaw = Math.atan2(from.x - this.pos.x, from.z - this.pos.z);
+      carried = new THREE.Group();
+      if (unit.object) {
+        const copy = unit.object.clone(true);
+        copy.position.set(0, 0, 0);
+        copy.quaternion.copy(unit.object.getWorldQuaternion(new THREE.Quaternion()));
+        carried.add(copy);
+      } else if (unit.mesh) {
+        const box = new THREE.Mesh(unit.mesh.geometry, unit.mesh.material);
+        box.scale.copy(unit.size);
+        box.quaternion.setFromRotationMatrix(new THREE.Matrix4().extractRotation(unit.matrix));
+        carried.add(box);
+      }
+      owned = false; // shares the shelf's geometry and materials
+    } else if (near && target) {
       from = target.position.clone();
       from.y = THREE.MathUtils.clamp(from.y, 0.6, 1.5);
       faceYaw = Math.atan2(from.x - this.pos.x, from.z - this.pos.z);
@@ -473,39 +484,92 @@ export class StoreEngine {
     }
     avatar.triggerPick();
 
-    const side = new THREE.MeshStandardMaterial({ color: '#e9e3d6', roughness: 0.55 });
-    const front = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.5 });
-    if (opts.imageUrl) {
-      const loader = new THREE.TextureLoader();
-      loader.setCrossOrigin('anonymous');
-      loader.load(
-        mediaUrl(opts.imageUrl),
-        (tex) => {
-          tex.colorSpace = THREE.SRGBColorSpace;
-          front.map = tex;
-          front.needsUpdate = true;
-        },
-        undefined,
-        () => front.color.set('#c8a96a'),
-      );
-    } else front.color.set('#c8a96a');
-    const geo = new THREE.BoxGeometry(0.16, 0.2, 0.08);
-    const mesh = new THREE.Mesh(geo, [side, side, side, side, front, front]);
-    mesh.castShadow = true;
-    mesh.position.copy(from);
-    this.scene.add(mesh);
-    this.pickAnim = { mesh, t: 0, from, faceYaw };
+    if (!carried) {
+      const side = new THREE.MeshStandardMaterial({ color: '#e9e3d6', roughness: 0.55 });
+      const front = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.5 });
+      if (opts.imageUrl) {
+        const loader = new THREE.TextureLoader();
+        loader.setCrossOrigin('anonymous');
+        loader.load(
+          mediaUrl(opts.imageUrl),
+          (tex) => {
+            tex.colorSpace = THREE.SRGBColorSpace;
+            front.map = tex;
+            front.needsUpdate = true;
+          },
+          undefined,
+          () => front.color.set('#c8a96a'),
+        );
+      } else front.color.set('#c8a96a');
+      carried = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.2, 0.08), [side, side, side, side, front, front]);
+      owned = true;
+    }
+    carried.traverse((o) => ((o as THREE.Mesh).castShadow = true));
+    carried.position.copy(from);
+    this.scene.add(carried);
+    this.pickAnim = { mesh: carried, t: 0, from, faceYaw, owned };
+  }
+
+  /** Take one unit from a spot's shelf (the nearest one still there); it is restocked a minute later. */
+  private takeUnit(spotId: string): PickUnit | null {
+    const list = this.store?.units.get(spotId);
+    if (!list?.length) return null;
+    const p = new THREE.Vector3();
+    let best: PickUnit | null = null;
+    let bestD = Infinity;
+    for (const u of list) {
+      if (u.taken) continue;
+      if (u.object) u.object.getWorldPosition(p);
+      else p.setFromMatrixPosition(u.matrix);
+      const d = Math.hypot(p.x - this.pos.x, p.z - this.pos.z);
+      if (d < bestD) {
+        bestD = d;
+        best = u;
+      }
+    }
+    if (!best) return null;
+    // the last unit stays on show (the shopper takes a copy) so the shelf never looks abandoned
+    if (list.filter((u) => !u.taken).length <= 1) return best;
+    best.taken = true;
+    this.setUnitVisible(best, false);
+    const unit = best;
+    const timer = window.setTimeout(() => {
+      this.restockTimers.delete(timer);
+      if (this.disposed) return;
+      unit.taken = false;
+      this.setUnitVisible(unit, true);
+    }, 60000);
+    this.restockTimers.add(timer);
+    return best;
+  }
+
+  private setUnitVisible(u: PickUnit, show: boolean) {
+    if (u.object) {
+      u.object.visible = show;
+      return;
+    }
+    if (u.mesh && u.index != null) {
+      const m = show ? u.matrix.clone().multiply(new THREE.Matrix4().makeScale(u.size.x, u.size.y, u.size.z)) : new THREE.Matrix4().makeScale(0, 0, 0);
+      u.mesh.setMatrixAt(u.index, m);
+      u.mesh.instanceMatrix.needsUpdate = true;
+    }
   }
 
   private finishPick() {
     const a = this.pickAnim;
     if (!a) return;
     this.scene.remove(a.mesh);
-    a.mesh.geometry.dispose();
-    (a.mesh.material as THREE.MeshStandardMaterial[]).forEach((m) => {
-      m.map?.dispose();
-      m.dispose();
-    });
+    if (a.owned) {
+      a.mesh.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        m.geometry?.dispose();
+        (Array.isArray(m.material) ? m.material : [m.material]).forEach((mm: any) => {
+          mm.map?.dispose();
+          mm.dispose();
+        });
+      });
+    }
     this.pickAnim = null;
     this.basketShown = this.basketTarget;
     this.avatar?.setBasketCount(this.basketTarget);
@@ -1358,6 +1422,9 @@ export class StoreEngine {
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.videos.forEach((v) => v.release());
     this.videos.clear();
+    this.restockTimers.forEach((t) => clearTimeout(t));
+    this.restockTimers.clear();
+    this.productModels.forEach((m) => m.obj.parent?.remove(m.obj));
     this.avatar?.dispose();
     this.store?.dispose();
     this.clearRoute();

@@ -329,7 +329,13 @@ export type FixtureType =
   | 'island_display' | 'mannequin' | 'clothing_rack' | 'shoe_wall' | 'vanity' | 'room_set' | 'fitting_station';
 
 export interface StoreShelf {
+  /** a product spot's id (or the display's id when the display has no products yet) */
   id: string;
+  /** the display (fixture) this row belongs to */
+  fixture_id?: string;
+  /** which spot on the display (1-based) and how many units of the product are shown there */
+  tier?: number;
+  facings?: number;
   department_id: string;
   shelf_code: string;
   aisle_label: string;

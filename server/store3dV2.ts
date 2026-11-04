@@ -358,6 +358,150 @@ const safeJson = (s: unknown) => {
 };
 
 // ---------------------------------------------------------------------------
+// PRODUCTS ON DISPLAYS
+// ---------------------------------------------------------------------------
+/** Spots per display type (must match src/components/store3d/layout/fixtureSpots.ts). */
+const SPOT_RULES: Record<string, number[]> = {
+  // max units per spot, one entry per spot
+  gondola: [10, 10, 10, 10, 10, 10],
+  double_tier: [10, 10, 10, 10, 10, 10],
+  wall_mount: [9, 9, 9, 9],
+  shoe_wall: [5, 5, 5, 5, 5],
+  glass_cabinet: [1, 1, 1],
+  island_display: [1, 3, 3],
+  endcap_promo: [1, 3, 3],
+  demo_table: [3, 3],
+  demo_kitchen: [3, 3],
+  vanity: [5, 5],
+  clothing_rack: [5, 5],
+  room_set: [1],
+  mannequin: [1],
+  fitting_station: [1],
+};
+const spotRule = (type?: string | null) => SPOT_RULES[type || 'gondola'] || SPOT_RULES.gondola;
+
+/** Products that came with the template store, not added by the admin. */
+const SEEDED_PRODUCT_IDS = ['prod_1', 'prod_2', 'prod_3', 'prod_4', 'prod_5', 'prod_6', 'prod_7', 'prod_8', 'prod_shoes_1', 'prod_watch_1', 'prod_beauty_1', 'prod_fitness_1'];
+
+/**
+ * Runs on every start after the other migrations:
+ * 1. the table of products on displays (one product per spot, with how many units to show);
+ * 2. once: products placed the old way (one per display) become a spot entry;
+ * 3. once: the template's demo products are removed (displays stay, now empty);
+ * 4. once: departments with very few displays get a small, tidy set of empty shelving.
+ */
+export function prepareStoreShelves() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS store_shelf_items (
+      id TEXT PRIMARY KEY,
+      shelf_id TEXT NOT NULL REFERENCES store_shelves(id) ON DELETE CASCADE,
+      product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      tier INTEGER NOT NULL DEFAULT 1,
+      facings INTEGER NOT NULL DEFAULT 4,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (shelf_id, tier)
+    );
+    CREATE INDEX IF NOT EXISTS idx_shelf_items_shelf ON store_shelf_items(shelf_id);
+    CREATE INDEX IF NOT EXISTS idx_shelf_items_product ON store_shelf_items(product_id);
+  `);
+
+  if (getSetting('shelf_items_version') !== '1') {
+    db.transaction(() => {
+      const rows = db.prepare('SELECT id, product_id, shelf_level, facing_count FROM store_shelves WHERE product_id IS NOT NULL').all() as any[];
+      const ins = db.prepare('INSERT OR IGNORE INTO store_shelf_items (id, shelf_id, product_id, tier, facings) VALUES (?, ?, ?, 1, ?)');
+      rows.forEach((r) => ins.run(`it_${r.id}`, r.id, r.product_id, Math.max(1, Math.min(10, Number(r.facing_count) || 4))));
+      db.prepare('UPDATE store_shelves SET product_id = NULL').run();
+      setSetting('shelf_items_version', '1');
+    })();
+  }
+
+  if (getSetting('demo_products_removed') !== '1') {
+    const ids = [
+      ...SEEDED_PRODUCT_IDS,
+      ...(db.prepare("SELECT id FROM products WHERE is_sample = 1 OR id LIKE 'prod_sample_%'").all() as { id: string }[]).map((r) => r.id),
+    ];
+    const productTables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[])
+      .map((t) => t.name)
+      .filter((t) => t !== 'products' && (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).some((c) => c.name === 'product_id'));
+    let removed = 0;
+    db.transaction(() => {
+      for (const id of new Set(ids)) {
+        if (!db.prepare('SELECT 1 FROM products WHERE id = ?').get(id)) continue;
+        // a product that appears in a real order is kept for the order's sake, but hidden everywhere
+        if (db.prepare('SELECT 1 FROM order_items WHERE product_id = ?').get(id)) {
+          db.prepare('UPDATE products SET is_published = 0 WHERE id = ?').run(id);
+          db.prepare('DELETE FROM store_shelf_items WHERE product_id = ?').run(id);
+          continue;
+        }
+        db.prepare('DELETE FROM store_promo_screens WHERE product_id = ?').run(id);
+        for (const t of productTables) {
+          if (t === 'order_items') continue;
+          if (t === 'store_shelves') db.prepare('UPDATE store_shelves SET product_id = NULL WHERE product_id = ?').run(id);
+          else db.prepare(`DELETE FROM ${t} WHERE product_id = ?`).run(id);
+        }
+        db.prepare('DELETE FROM products WHERE id = ?').run(id);
+        removed++;
+      }
+      setSetting('demo_products_removed', '1');
+    })();
+    if (removed) console.log(`Removed ${removed} demo product(s). Displays are kept, empty, ready for real products.`);
+  }
+
+  if (getSetting('core_fixtures_version') !== '1') {
+    const depts = db.prepare('SELECT id, name, aisle_number, interior_style FROM store_departments WHERE slot_index IS NOT NULL').all() as any[];
+    const has = db.prepare('SELECT slot_code FROM store_shelves WHERE department_id = ?');
+    const ins = db.prepare(`INSERT INTO store_shelves (id, department_id, shelf_code, aisle_label, pos_x, pos_y, pos_z, rotation_y, shelf_type, product_id, featured_label, slot_code, shelf_level, facing_count, zone)
+      VALUES (?, ?, ?, ?, 0, 0, 0, 0, ?, NULL, NULL, ?, 2, 4, 'display')`);
+    let added = 0;
+    db.transaction(() => {
+      for (const d of depts) {
+        const used = new Set((has.all(d.id) as { slot_code: string }[]).map((r) => r.slot_code));
+        if (used.size >= 5) continue; // already furnished: never crowd a department
+        const style = String(d.interior_style || '');
+        const shoes = /shoe|foot/i.test(d.name);
+        const floor = style === 'boutique' ? 'clothing_rack' : style === 'luxury' ? 'glass_cabinet' : style === 'warm_wood' ? 'island_display' : 'gondola';
+        const plan: [string, string][] = [
+          ['F1', style === 'spa' ? 'vanity' : floor],
+          ['F2', style === 'spa' ? 'glass_cabinet' : floor],
+          ['L1', shoes ? 'shoe_wall' : 'wall_mount'],
+          ['R1', shoes ? 'shoe_wall' : 'wall_mount'],
+        ];
+        const n = String(d.aisle_number ?? 0).padStart(2, '0');
+        for (const [slot, type] of plan) {
+          if (used.has(slot)) continue;
+          ins.run(`fx_${d.id}_${slot.toLowerCase()}`, d.id, `D${n}-${slot}`, `Aisle ${n} · Bay ${slot}`, type, slot);
+          used.add(slot);
+          added++;
+        }
+      }
+      setSetting('core_fixtures_version', '1');
+    })();
+    if (added) console.log(`Added ${added} empty display(s) to departments that had very few.`);
+  }
+}
+
+/** Replace the products on one display: [{ tier, product_id, facings }]. */
+function saveShelfItems(shelfId: string, items: any[]) {
+  const shelf = db.prepare('SELECT id, shelf_type FROM store_shelves WHERE id = ?').get(shelfId) as any;
+  if (!shelf) throw Object.assign(new Error('That display does not exist.'), { status: 404 });
+  const rule = spotRule(shelf.shelf_type);
+  const clean = new Map<number, { product_id: string; facings: number }>();
+  for (const it of Array.isArray(items) ? items : []) {
+    const tier = Math.round(Number(it?.tier));
+    if (!(tier >= 1 && tier <= rule.length) || !it?.product_id) continue;
+    if (!db.prepare('SELECT 1 FROM products WHERE id = ?').get(it.product_id)) throw Object.assign(new Error('One of the products no longer exists.'), { status: 400 });
+    clean.set(tier, { product_id: String(it.product_id), facings: Math.max(1, Math.min(rule[tier - 1], Math.round(Number(it.facings) || 1))) });
+  }
+  db.transaction(() => {
+    const keep = [...clean.keys()];
+    db.prepare(`DELETE FROM store_shelf_items WHERE shelf_id = ?${keep.length ? ` AND tier NOT IN (${keep.map(() => '?').join(',')})` : ''}`).run(shelfId, ...keep);
+    const up = db.prepare(`INSERT INTO store_shelf_items (id, shelf_id, product_id, tier, facings) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(shelf_id, tier) DO UPDATE SET product_id = excluded.product_id, facings = excluded.facings`);
+    clean.forEach((v, tier) => up.run(`it_${crypto.randomBytes(6).toString('hex')}`, shelfId, v.product_id, tier, v.facings));
+  })();
+}
+
+// ---------------------------------------------------------------------------
 // ROUTES
 // ---------------------------------------------------------------------------
 export const store3dRouter = Router();
@@ -373,21 +517,32 @@ store3dRouter.get('/store3d/v2/layout', (_req, res) => {
       ORDER BY d.aisle_number ASC
     `).all();
 
-    const shelves = db.prepare(`
-      SELECT s.*, p.name AS product_name, p.slug AS product_slug, p.sku AS product_sku, p.regular_price, p.discount_price,
+    // One row per product spot (id = the spot's id, fixture_id = its display), plus one row for each
+    // display that has no products yet (its shelves are drawn, empty).
+    const productCols = `p.name AS product_name, p.slug AS product_slug, p.sku AS product_sku, p.regular_price, p.discount_price,
         p.cost_price, p.stock_quantity, p.brand AS product_brand, p.short_description, p.tryon_type AS product_tryon_type,
         p.model_preset, p.model_3d_url, p.model_scale, p.model_rotation_deg, p.wearable_slot, p.color_options AS product_color_options, p.color_hex_map,
         p.dimensions_json, p.demo_video_url AS product_video_url, p.demo_video_type AS product_video_type,
         p.demo_video_poster AS product_video_poster, p.is_sample,
         (SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) AS primary_image,
         (SELECT ROUND(AVG(rating), 1) FROM reviews WHERE product_id = p.id) AS average_rating,
-        (SELECT COUNT(*) FROM reviews WHERE product_id = p.id) AS review_count,
-        d.name AS department_name, d.sign_label AS department_sign, d.theme_color, d.aisle_number AS department_number
-      FROM store_shelves s
-      LEFT JOIN products p ON p.id = s.product_id AND p.is_published = 1
+        (SELECT COUNT(*) FROM reviews WHERE product_id = p.id) AS review_count`;
+    const deptCols = 'd.name AS department_name, d.sign_label AS department_sign, d.theme_color, d.aisle_number AS department_number';
+    const items = db.prepare(`
+      SELECT s.*, i.id AS id, s.id AS fixture_id, i.product_id AS product_id, i.tier, i.facings, ${productCols}, ${deptCols}
+      FROM store_shelf_items i
+      JOIN store_shelves s ON s.id = i.shelf_id
+      JOIN products p ON p.id = i.product_id AND p.is_published = 1
       LEFT JOIN store_departments d ON d.id = s.department_id
+      ORDER BY s.shelf_code ASC, i.tier ASC
+    `).all() as any[];
+    const withItems = new Set(items.map((r) => r.fixture_id));
+    const empty = (db.prepare(`
+      SELECT s.*, s.id AS fixture_id, NULL AS product_id, ${deptCols}
+      FROM store_shelves s LEFT JOIN store_departments d ON d.id = s.department_id
       ORDER BY s.shelf_code ASC
-    `).all();
+    `).all() as any[]).filter((r) => !withItems.has(r.id));
+    const shelves = [...items, ...empty];
 
     const promos = db.prepare(`
       SELECT ps.*, p.name AS product_name, p.slug AS product_slug, p.regular_price, p.discount_price,
@@ -610,7 +765,7 @@ store3dRouter.delete('/admin/store3d/departments/:id', requireAdmin, (req, res) 
 // ---------------- Admin: fixtures (slot-based) ----------------
 store3dRouter.put('/admin/store3d/fixtures/:id', requireAdmin, (req, res) => {
   const b = req.body || {};
-  const allowed = ['department_id', 'shelf_code', 'aisle_label', 'shelf_type', 'product_id', 'featured_label', 'slot_code', 'shelf_level', 'facing_count', 'zone', 'rotation_y'];
+  const allowed = ['department_id', 'shelf_code', 'aisle_label', 'shelf_type', 'featured_label', 'slot_code', 'shelf_level', 'facing_count', 'zone', 'rotation_y'];
   if (b.slot_code !== undefined) {
     const code = slotCode(b.slot_code);
     if (!code) return res.status(400).json({ error: 'That position does not exist in the department.' });
@@ -633,6 +788,7 @@ store3dRouter.put('/admin/store3d/fixtures/:id', requireAdmin, (req, res) => {
     }
   });
   if (sets.length) db.prepare(`UPDATE store_shelves SET ${sets.join(', ')} WHERE id = ?`).run(...vals, req.params.id);
+  if (b.shelf_type) db.prepare('DELETE FROM store_shelf_items WHERE shelf_id = ? AND tier > ?').run(req.params.id, spotRule(b.shelf_type).length);
   res.json({ success: true });
 });
 
@@ -645,13 +801,29 @@ store3dRouter.post('/admin/store3d/fixtures', requireAdmin, (req, res) => {
   if (clash) return res.status(400).json({ error: 'Another fixture already occupies that position.' });
   const dept = db.prepare('SELECT aisle_number FROM store_departments WHERE id = ?').get(b.department_id) as any;
   const n = String(dept?.aisle_number ?? 0).padStart(2, '0');
-  const id = `fx_${Date.now()}`;
+  const id = `fx_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
   db.prepare(`INSERT INTO store_shelves (id, department_id, shelf_code, aisle_label, pos_x, pos_y, pos_z, rotation_y, shelf_type, product_id, featured_label, slot_code, shelf_level, facing_count, zone)
     VALUES (?, ?, ?, ?, 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?)`).run(
     id, b.department_id, b.shelf_code || `D${n}-${b.slot_code}`, b.aisle_label || `Aisle ${n} · Bay ${b.slot_code}`, b.shelf_type || 'gondola',
-    b.product_id || null, b.featured_label || null, b.slot_code, Number(b.shelf_level || 2), Number(b.facing_count || 4), b.zone || 'display',
+    null, b.featured_label || null, b.slot_code, Number(b.shelf_level || 2), Number(b.facing_count || 4), b.zone || 'display',
   );
+  if (b.product_id) saveShelfItems(id, [{ tier: 1, product_id: b.product_id, facings: b.facing_count || 4 }]);
   res.json({ success: true, id });
+});
+
+// products on one display (includes unpublished products so the admin sees everything)
+store3dRouter.get('/admin/store3d/fixtures/:id/items', requireAdmin, (req, res) => {
+  const items = db.prepare(`SELECT i.tier, i.facings, i.product_id, p.name AS product_name, p.is_published
+    FROM store_shelf_items i JOIN products p ON p.id = i.product_id WHERE i.shelf_id = ? ORDER BY i.tier`).all(req.params.id);
+  res.json({ items });
+});
+store3dRouter.put('/admin/store3d/fixtures/:id/items', requireAdmin, (req, res) => {
+  try {
+    saveShelfItems(req.params.id, req.body?.items);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
 });
 
 store3dRouter.delete('/admin/store3d/fixtures/:id', requireAdmin, (req, res) => {

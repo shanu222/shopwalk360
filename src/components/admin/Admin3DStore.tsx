@@ -6,6 +6,7 @@ import { mediaUrl } from '../../lib/api';
 import { StoreDepartment, StoreShelf, Product, Category, PromoScreen, LedScreen, ProductVariant, TryOnType } from '../../types';
 import { StoreMap } from '../store3d/StoreMap';
 import { SLOTS, SLOT_BY_CODE, roomForSlot, formatDeptNumber, INTERIOR_LABELS, PROMO_CLEAR_FROM_U } from '../store3d/layout/storeLayout';
+import { spotsFor } from '../store3d/layout/fixtureSpots';
 import { MODEL_PRESETS } from '../store3d/builder/productModels';
 import { ProductViewer3D } from '../store3d/product/ProductViewer3D';
 import { DemoVideo } from '../store3d/product/DemoVideo';
@@ -177,7 +178,9 @@ function FloorTab({ departments, shelves, onPickDept, onPickShelf }: { departmen
       </div>
       <div className="grid content-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {[...departments].sort((a, b) => a.aisle_number - b.aisle_number).map((d) => {
-          const fx = shelves.filter((s) => s.department_id === d.id);
+          const rows = shelves.filter((s) => s.department_id === d.id);
+          const fx = [...new Map(rows.map((s) => [s.fixture_id || s.id, s])).values()];
+          const productSpots = rows.filter((s) => s.product_id).length;
           return (
             <div key={d.id} className="space-y-2 rounded-2xl border border-slate-200 bg-white p-4 text-xs">
               <div className="flex items-center justify-between">
@@ -188,7 +191,7 @@ function FloorTab({ departments, shelves, onPickDept, onPickShelf }: { departmen
                 {d.is_active === 0 && <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px]">Inactive</span>}
               </div>
               <div className="text-slate-500">{d.slot_index !== undefined && d.slot_index !== null ? slotName(d.slot_index) : 'No room assigned'} · {INTERIOR_LABELS[d.interior_style || ''] || d.interior_style} · {d.lighting} light</div>
-              <div className="text-slate-700">{fx.length} fixtures · {fx.filter((s) => s.product_id).length} with products · {fx.filter((s) => s.zone === 'demo').length ? 'has demo zone' : 'no demo zone'}</div>
+              <div className="text-slate-700">{fx.length} displays · {productSpots} product spot{productSpots === 1 ? '' : 's'} filled · {fx.filter((s) => s.zone === 'demo').length ? 'has demo zone' : 'no demo zone'}</div>
             </div>
           );
         })}
@@ -311,24 +314,42 @@ function FixturesTab({ departments, shelves, products, call, reload, flash }: { 
   const [deptId, setDeptId] = useState<string>(sorted[0]?.id || '');
   const [slot, setSlot] = useState<string | null>(null);
   const dept = departments.find((d) => d.id === deptId) || sorted[0];
-  const existing = shelves.find((s) => s.department_id === dept?.id && s.slot_code === slot);
+  const existingRow = shelves.find((s) => s.department_id === dept?.id && s.slot_code === slot);
+  // layout rows are product spots; the display itself is fixture_id
+  const existing = existingRow ? { ...existingRow, id: existingRow.fixture_id || existingRow.id } : undefined;
   const [form, setForm] = useState<Partial<StoreShelf>>({});
+  const [spotItems, setSpotItems] = useState<Record<number, { product_id: string; facings: number }>>({});
   useEffect(() => {
     if (!slot) return;
     const def = SLOT_BY_CODE[slot];
     setForm(existing ? { ...existing } : { shelf_type: def.fits[0] as StoreShelf['shelf_type'], shelf_level: 2, facing_count: 4, zone: def.kind === 'demo' ? 'demo' : 'display' });
+    setSpotItems({});
+    if (existing) {
+      fetch(`/api/admin/store3d/fixtures/${existing.id}/items`).then((r) => r.json()).then((d) => {
+        const m: Record<number, { product_id: string; facings: number }> = {};
+        (d.items || []).forEach((it: any) => (m[it.tier] = { product_id: it.product_id, facings: it.facings }));
+        setSpotItems(m);
+      }).catch(() => {});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slot, deptId, shelves]);
   if (!dept) return <div className="text-xs text-slate-500">Add a department first.</div>;
   const room = dept.slot_index !== null && dept.slot_index !== undefined ? roomForSlot(dept.slot_index) : null;
 
+  const spotDefs = spotsFor(form.shelf_type);
   const save = async () => {
     try {
-      const body = { ...form, department_id: dept.id, slot_code: slot };
+      const { id: _id, fixture_id: _f, tier: _t, facings: _fc, product_id: _p, ...fields } = form as any;
+      const body = { ...fields, department_id: dept.id, slot_code: slot };
+      let fid = existing?.id;
       if (existing) await call(`/api/admin/store3d/fixtures/${existing.id}`, 'PUT', body);
-      else await call('/api/admin/store3d/fixtures', 'POST', body);
+      else fid = (await call('/api/admin/store3d/fixtures', 'POST', body)).id;
+      const items = Object.entries(spotItems)
+        .filter(([tier, v]) => v.product_id && Number(tier) <= spotDefs.length)
+        .map(([tier, v]) => ({ tier: Number(tier), product_id: v.product_id, facings: v.facings }));
+      await call(`/api/admin/store3d/fixtures/${fid}/items`, 'PUT', { items });
       await reload();
-      flash(true, 'Display saved.');
+      flash(true, 'Display saved. Reload the virtual store to see it.');
     } catch (e: any) {
       flash(false, e.message);
     }
@@ -424,18 +445,34 @@ function FixturesTab({ departments, shelves, products, call, reload, flash }: { 
                     {SLOT_BY_CODE[slot].fits.filter((f) => FIXTURE_LABELS[f]).map((f) => <option key={f} value={f}>{FIXTURE_LABELS[f]}</option>)}
                   </select>
                 </div>
-                <div>
-                  <label className={label}>Product</label>
-                  <select className={input} value={form.product_id || ''} onChange={(e) => setForm({ ...form, product_id: e.target.value })}>
-                    <option value="">— empty —</option>
-                    {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className={label}>Shelf position (level shown in the store)</label>
-                  <select className={input} value={form.shelf_level || 2} onChange={(e) => setForm({ ...form, shelf_level: Number(e.target.value) })}>
-                    {[1, 2, 3, 4].map((n) => <option key={n} value={n}>Shelf {n}{n === 2 ? ' (eye level)' : ''}</option>)}
-                  </select>
+                <div className="sm:col-span-2">
+                  <label className={label}>Products on this display</label>
+                  <p className="mb-2 text-[11px] text-slate-500">Choose a product for each place and how many units to show there. Empty places stay empty in the store.</p>
+                  <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+                    {spotDefs.map((sd, i) => {
+                      const tier = i + 1;
+                      const cur = spotItems[tier];
+                      return (
+                        <div key={tier} className="grid grid-cols-[1fr_2fr_auto] items-center gap-2 p-2">
+                          <span className="font-semibold text-slate-600">{sd.label}</span>
+                          <select className={input} value={cur?.product_id || ''} onChange={(e) => setSpotItems({ ...spotItems, [tier]: { product_id: e.target.value, facings: cur?.facings || Math.min(4, sd.maxUnits) } })}>
+                            <option value="">— empty —</option>
+                            {products.map((p) => <option key={p.id} value={p.id}>{p.name}{p.is_published === 0 ? ' (hidden)' : ''}</option>)}
+                          </select>
+                          <label className="flex items-center gap-1 whitespace-nowrap text-[11px] text-slate-500">
+                            Units
+                            <input
+                              type="number" min={1} max={sd.maxUnits} disabled={!cur?.product_id}
+                              className="w-14 rounded-lg border border-slate-300 px-2 py-1.5 text-xs disabled:opacity-40"
+                              value={cur?.facings || Math.min(4, sd.maxUnits)}
+                              onChange={(e) => cur && setSpotItems({ ...spotItems, [tier]: { ...cur, facings: Math.max(1, Math.min(sd.maxUnits, Number(e.target.value) || 1)) } })}
+                            />
+                            <span className="text-slate-400">/ {sd.maxUnits}</span>
+                          </label>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
                 <div><label className={label}>Badge (optional)</label><input className={input} value={form.featured_label || ''} onChange={(e) => setForm({ ...form, featured_label: e.target.value })} placeholder="e.g. NEW IN" /></div>
                 <div><label className={label}>Aisle label</label><input className={input} value={form.aisle_label || ''} onChange={(e) => setForm({ ...form, aisle_label: e.target.value })} placeholder={`Aisle ${formatDeptNumber(dept.aisle_number)} · Bay ${slot}`} /></div>
@@ -465,7 +502,8 @@ function ProductTab({ products, departments, shelves, call, reload, flash }: { p
   const [specs, setSpecs] = useState<[string, string][]>([]);
   const [dims, setDims] = useState({ w: '', h: '', d: '' });
   const [hex, setHex] = useState<Record<string, string>>({});
-  const [placement, setPlacement] = useState({ dept: '', slot: '' });
+  const [placement, setPlacement] = useState({ dept: '', display: '', tier: 1, units: 4 });
+  const [taken, setTaken] = useState<Record<number, string>>({});
   const samples = products.filter((x) => x.is_sample);
 
   useEffect(() => {
@@ -495,6 +533,26 @@ function ProductTab({ products, departments, shelves, call, reload, flash }: { p
 
   const colourNames = useMemo(() => (p?.color_options || '').split(',').map((s) => s.trim()).filter(Boolean), [p?.color_options]);
   const where = shelves.filter((s) => s.product_id === pid);
+  // the chosen display: an existing one (fixture id) or a free position ("slot:CODE")
+  const deptFixtures = useMemo(() => {
+    const m = new Map<string, StoreShelf>();
+    shelves.filter((s) => s.department_id === placement.dept).forEach((s) => m.set(s.fixture_id || s.id, s));
+    return [...m.entries()];
+  }, [shelves, placement.dept]);
+  const chosenFixture = deptFixtures.find(([id]) => id === placement.display)?.[1];
+  const freeSlot = placement.display.startsWith('slot:') ? placement.display.slice(5) : '';
+  const placeType = chosenFixture?.shelf_type || (freeSlot ? SLOT_BY_CODE[freeSlot]?.fits[0] : '') || 'gondola';
+  const placeSpots = spotsFor(placeType);
+  useEffect(() => {
+    setTaken({});
+    if (!chosenFixture) return;
+    fetch(`/api/admin/store3d/fixtures/${placement.display}/items`).then((r) => r.json()).then((d) => {
+      const m: Record<number, string> = {};
+      (d.items || []).forEach((it: any) => (m[it.tier] = it.product_name));
+      setTaken(m);
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placement.display]);
   const set = (patch: Partial<Product>) => setP((x) => (x ? { ...x, ...patch } : x));
 
   const save = async () => {
@@ -530,12 +588,17 @@ function ProductTab({ products, departments, shelves, call, reload, flash }: { p
     }
   };
 
+  const itemsOf = async (fid: string) => ((await (await fetch(`/api/admin/store3d/fixtures/${fid}/items`)).json()).items || []) as { tier: number; product_id: string; facings: number }[];
   const place = async () => {
-    if (!placement.dept || !placement.slot) return;
+    if (!placement.dept || !placement.display) return;
     try {
-      await call('/api/admin/store3d/fixtures', 'POST', { department_id: placement.dept, slot_code: placement.slot, product_id: pid, shelf_type: SLOT_BY_CODE[placement.slot].fits[0] });
+      let fid = placement.display;
+      if (freeSlot) fid = (await call('/api/admin/store3d/fixtures', 'POST', { department_id: placement.dept, slot_code: freeSlot, shelf_type: placeType })).id;
+      const current = (await itemsOf(fid)).filter((it) => it.tier !== placement.tier);
+      await call(`/api/admin/store3d/fixtures/${fid}/items`, 'PUT', { items: [...current, { tier: placement.tier, product_id: pid, facings: placement.units }] });
       await reload();
-      flash(true, 'Product placed in the store.');
+      setPlacement({ ...placement, display: '' });
+      flash(true, 'Product placed in the store. Reload the virtual store to see it.');
     } catch (e: any) {
       flash(false, e.message);
     }
@@ -568,23 +631,48 @@ function ProductTab({ products, departments, shelves, call, reload, flash }: { p
           <Card title="Location in the store" icon={MapIcon}>
             {where.length ? (
               <ul className="space-y-1 text-xs">
-                {where.map((s) => <li key={s.id}>• {s.department_name} · {s.aisle_label} · {FIXTURE_LABELS[s.shelf_type] || s.shelf_type} · Shelf {s.shelf_level || 2}{s.zone === 'demo' ? ' · demo zone' : ''}</li>)}
+                {where.map((s) => (
+                  <li key={s.id} className="flex items-center justify-between gap-2">
+                    <span>• {s.department_name} · {s.aisle_label} · {FIXTURE_LABELS[s.shelf_type] || s.shelf_type} · {spotsFor(s.shelf_type)[(s.tier || 1) - 1]?.label || 'Spot'} · {s.facings || 1} unit{(s.facings || 1) === 1 ? '' : 's'}{s.zone === 'demo' ? ' · demo zone' : ''}</span>
+                    <button
+                      className="font-semibold text-rose-600"
+                      onClick={async () => {
+                        const fid = s.fixture_id || s.id;
+                        await call(`/api/admin/store3d/fixtures/${fid}/items`, 'PUT', { items: (await itemsOf(fid)).filter((it) => it.tier !== s.tier) });
+                        await reload();
+                        flash(true, 'Removed from that display.');
+                      }}
+                    >Remove</button>
+                  </li>
+                ))}
               </ul>
             ) : <div className="text-xs text-amber-700">This product is not on display in the virtual store yet.</div>}
-            <div className="mt-3 flex flex-wrap items-end gap-2">
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
               <div><label className={label}>Department</label>
-                <select className={input} value={placement.dept} onChange={(e) => setPlacement({ dept: e.target.value, slot: '' })}>
-                  <option value="">—</option>
-                  {departments.map((d) => <option key={d.id} value={d.id}>{formatDeptNumber(d.aisle_number)} {d.name}</option>)}
+                <select className={input} value={placement.dept} onChange={(e) => setPlacement({ dept: e.target.value, display: '', tier: 1, units: 4 })}>
+                  <option value="">— department —</option>
+                  {departments.filter((d) => d.slot_index !== null && d.slot_index !== undefined).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </div>
-              <div><label className={label}>Free position</label>
-                <select className={input} value={placement.slot} onChange={(e) => setPlacement({ ...placement, slot: e.target.value })}>
-                  <option value="">—</option>
-                  {SLOTS.filter((s) => !shelves.some((x) => x.department_id === placement.dept && x.slot_code === s.code)).map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
+              <div><label className={label}>Display</label>
+                <select className={input} value={placement.display} disabled={!placement.dept} onChange={(e) => setPlacement({ ...placement, display: e.target.value, tier: 1 })}>
+                  <option value="">— display —</option>
+                  {deptFixtures.map(([id, f]) => <option key={id} value={id}>{f.slot_code} · {FIXTURE_LABELS[f.shelf_type] || f.shelf_type}</option>)}
+                  {SLOTS.filter((sl) => !deptFixtures.some(([, f]) => f.slot_code === sl.code)).map((sl) => <option key={sl.code} value={`slot:${sl.code}`}>New display · {sl.label}</option>)}
                 </select>
               </div>
-              <button onClick={place} disabled={!placement.dept || !placement.slot} className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">Place here</button>
+              <div><label className={label}>Place on the display</label>
+                <select className={input} value={placement.tier} disabled={!placement.display} onChange={(e) => setPlacement({ ...placement, tier: Number(e.target.value), units: Math.min(placement.units, placeSpots[Number(e.target.value) - 1]?.maxUnits || 1) })}>
+                  {placeSpots.map((sd, i) => <option key={i} value={i + 1}>{sd.label}{taken[i + 1] ? ` — replaces ${taken[i + 1]}` : ''}</option>)}
+                </select>
+              </div>
+              <div><label className={label}>Units to show (max {placeSpots[placement.tier - 1]?.maxUnits || 1})</label>
+                <div className="flex gap-2">
+                  <input type="number" min={1} max={placeSpots[placement.tier - 1]?.maxUnits || 1} className={input} value={placement.units}
+                    onChange={(e) => setPlacement({ ...placement, units: Math.max(1, Math.min(placeSpots[placement.tier - 1]?.maxUnits || 1, Number(e.target.value) || 1)) })} />
+                  <button onClick={place} disabled={!placement.dept || !placement.display} className="shrink-0 rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">Place here</button>
+                </div>
+              </div>
             </div>
           </Card>
 
@@ -608,6 +696,12 @@ function ProductTab({ products, departments, shelves, call, reload, flash }: { p
           </Card>
 
           <Card title="3D Product Configuration" icon={Ruler}>
+            <div className="mb-3 rounded-xl bg-slate-50 p-3 text-[11px] text-slate-600">
+              <div className="mb-1 font-bold text-slate-800">How this product looks on the shelves — pick one:</div>
+              <div>1. <b>Easiest:</b> just add a product photo (below). It is shown as a boxed product carrying the photo.</div>
+              <div>2. <b>Built-in 3D shape:</b> choose a “Generated preview model” that matches the product.</div>
+              <div>3. <b>Real 3D model:</b> upload a .glb file (export it from Blender, SketchUp, Polycam or any 3D app). It replaces the other two.</div>
+            </div>
             <div className="grid gap-3 sm:grid-cols-3">
               {(['w', 'h', 'd'] as const).map((k) => (
                 <div key={k}><label className={label}>{k === 'w' ? 'Width' : k === 'h' ? 'Height' : 'Depth'} (cm)</label><input type="number" min={0} step="0.1" className={input} value={dims[k]} onChange={(e) => setDims({ ...dims, [k]: e.target.value })} /></div>
@@ -637,7 +731,7 @@ function ProductTab({ products, departments, shelves, call, reload, flash }: { p
                 <input type="range" min={-180} max={180} step={5} className="w-full accent-blue-600" value={p.model_rotation_deg ?? 0} onChange={(e) => set({ model_rotation_deg: Number(e.target.value) })} />
               </div>
             </div>
-            <p className="mt-1 text-[11px] text-slate-500">An uploaded model is shown on a display stand in front of its shelf in the 3D store, sized from the dimensions above (or a standard display size if none are given) and then multiplied by the scale.</p>
+            <p className="mt-1 text-[11px] text-slate-500">An uploaded model stands on its shelf spot in the 3D store — one copy for each unit shown — at the real size from the dimensions above (never bigger than the spot), or sized to fill the spot if none are given, then multiplied by the scale.</p>
             <div className="mt-3"><ProductViewer3D preset={p.model_preset} glbUrl={p.model_3d_url} colorName={colourNames[0]} colorMap={hex} colorOptions={p.color_options} dims={dimsObj} specs={Object.fromEntries(specs)} className="h-64" /></div>
           </Card>
 

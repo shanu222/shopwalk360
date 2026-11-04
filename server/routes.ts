@@ -937,6 +937,17 @@ apiRouter.put('/admin/products/:id', requireAdmin, (req: Request, res: Response)
 apiRouter.delete('/admin/products/:id', requireAdmin, (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    // a product that is part of a past order is kept for that order's records, but taken off sale
+    // and off every shelf in the 3D store
+    if (db.prepare('SELECT 1 FROM order_items WHERE product_id = ?').get(id)) {
+      db.prepare("UPDATE products SET is_published = 0, updated_at = datetime('now') WHERE id = ?").run(id);
+      try {
+        db.prepare('DELETE FROM store_shelf_items WHERE product_id = ?').run(id);
+      } catch {
+        /* table not created yet */
+      }
+      return res.json({ success: true, hidden: true, message: 'This product is part of past orders, so it was hidden from the store instead of deleted.' });
+    }
     db.prepare('DELETE FROM products WHERE id = ?').run(id);
     res.json({ success: true });
   } catch (err: any) {

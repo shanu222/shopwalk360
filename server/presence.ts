@@ -19,6 +19,10 @@ interface Shopper {
   yaw: number;
   speed: number;
   inside: boolean;
+  /** has reported where they stand (until then there is nothing to draw) */
+  placed: boolean;
+  /** said goodbye (closing the store, switching to the 2D shop) */
+  left: boolean;
   updated: number;
   lastMsg: number;
   msgCount: number;
@@ -26,6 +30,10 @@ interface Shopper {
 
 const MAX_SHOPPERS = 300;
 const TICK_MS = 200;
+/** a shopper who has sent nothing for this long is no longer drawn for others */
+const STALE_MS = 60000;
+/** how often dead connections are looked for (a dead one is dropped within two rounds) */
+const PING_MS = 10000;
 
 // avatar fields that are safe to share (no photo, no generated model URL, no name)
 const LOOK_KEYS = [
@@ -77,7 +85,7 @@ export function attachPresence(server: Server, isOriginAllowed: (origin: string 
     const id = crypto.randomBytes(6).toString('hex');
     (ws as any).alive = true;
     ws.on('pong', () => ((ws as any).alive = true));
-    const me: Shopper = { id, ws, look: null, x: 0, z: 0, yaw: 0, speed: 0, inside: false, updated: Date.now(), lastMsg: Date.now(), msgCount: 0 };
+    const me: Shopper = { id, ws, look: null, x: 0, z: 0, yaw: 0, speed: 0, inside: false, placed: false, left: false, updated: Date.now(), lastMsg: Date.now(), msgCount: 0 };
     shoppers.set(id, me);
     ws.send(JSON.stringify({ t: 'hello', id }));
 
@@ -105,19 +113,26 @@ export function attachPresence(server: Server, isOriginAllowed: (origin: string 
         me.yaw = num(m.yaw, -100, 100) ?? 0;
         me.speed = num(m.s, 0, 5) ?? 0;
         me.inside = !!m.in;
+        me.placed = true;
+        me.left = false;
         me.updated = now;
       }
-      if (m?.t === 'leave') me.inside = false;
+      if (m?.t === 'leave') {
+        me.inside = false;
+        me.left = true;
+      }
     });
     ws.on('close', () => shoppers.delete(id));
     ws.on('error', () => shoppers.delete(id));
   });
 
-  // broadcast: every client receives everyone else who is inside the store and has a look
+  // broadcast: every client receives everyone else in the 3D store — on the plaza or inside,
+  // signed in or not — who has an avatar and a position, has not left and is still reporting
   setInterval(() => {
+    const now = Date.now();
     const visible: Shopper[] = [];
     for (const s of shoppers.values()) {
-      if (s.inside && s.look) visible.push(s);
+      if (s.look && s.placed && !s.left && now - s.updated < STALE_MS && s.ws.readyState === WebSocket.OPEN) visible.push(s);
     }
     for (const s of shoppers.values()) {
       if (s.ws.readyState !== WebSocket.OPEN) continue;
@@ -146,5 +161,5 @@ export function attachPresence(server: Server, isOriginAllowed: (origin: string 
       ws.alive = false;
       s.ws.ping();
     }
-  }, 20000).unref();
+  }, PING_MS).unref();
 }
