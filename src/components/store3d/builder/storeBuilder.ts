@@ -744,30 +744,15 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
         am.rotation.y = ry;
         root.add(am);
       });
-      // department information screen just inside the entrance (faces arriving shoppers)
-      const ip = localToWorld(room, 3.2, 4.05);
-      const infoLines = [
-        dept.info_text || dept.description || '',
-        productCount > 0 ? `${productCount} displays in this department` : 'No products listed yet',
-        hasDemo ? 'Demonstration zone at the back' : '',
-      ].filter(Boolean);
-      const infoBoard = createLedBoard({ title: dept.name, lines: infoLines, accent: dept.theme_color || '#c8a96a', wide: true });
-      disposables.push(infoBoard);
-      ledAnims.push(infoBoard.update);
-      const stand = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.35, 0.1), std('#2a2b2e', 0.4, 0.5));
-      stand.position.set(ip.x, 0.68, ip.z);
-      root.add(stand);
-      const scr = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.15), new THREE.MeshBasicMaterial({ map: infoBoard.texture, toneMapped: false }));
-      scr.position.set(ip.x - room.inward * 0.06, 1.7, ip.z);
-      scr.rotation.y = Math.atan2(-room.inward, -0.6);
-      root.add(scr);
-      if (dept.info_video_url) videoScreens.push({ mesh: scr, id: `info_${dept.id}`, videoUrl: dept.info_video_url, playlist: [dept.info_video_url], center: scr.position.clone() });
+      // the promo wall carries the department's name and description, so it is also its information point
       mountDeptPromo(room, dept, backX, accent);
-      colliders.push({ minX: ip.x - 0.3, maxX: ip.x + 0.3, minZ: ip.z - 0.3, maxZ: ip.z + 0.3 });
+      const wp = localToWorld(room, STORE.roomDepth - 0.3, 0);
       targets.push({
         id: `info_${dept.id}`, kind: 'dept_info', title: dept.name, subtitle: dept.description || '', department: dept,
-        position: new THREE.Vector3(ip.x, 1.5, ip.z), stand: { ...localToWorld(room, 1.9, 3.0) },
+        position: new THREE.Vector3(wp.x, 2.2, wp.z), stand: { ...localToWorld(room, 12.6, 0) },
       });
+      void productCount;
+      void hasDemo;
     } else {
       // vacant unit: hoarding
       const t = simpleScreenTexture('Coming soon', ['This unit is not assigned to a department'], '#8a8f98', 1024, 300);

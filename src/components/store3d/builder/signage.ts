@@ -128,7 +128,7 @@ export function aisleSignTexture(dept: StoreDepartment) {
   ctx.fillText(dept.name, 340, 120);
   ctx.font = `500 38px ${FONT}`;
   ctx.fillStyle = '#5b5f66';
-  ctx.fillText('Bays  L · F · R · BW  ·  Demo zone at the back', 340, 214);
+  ctx.fillText('Bays  L · F · R  ·  Demo zone at the front', 340, 214);
   return tex(c);
 }
 

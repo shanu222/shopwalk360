@@ -47,7 +47,7 @@ export const STORE = {
 };
 
 export type SlotCode =
-  | 'WIN1' | 'WIN2' | 'F1' | 'F2' | 'F3' | 'F4' | 'L1' | 'L2' | 'R1' | 'R2' | 'BW1' | 'BW2' | 'BW3' | 'D1';
+  | 'WIN1' | 'WIN2' | 'D1' | 'R0' | 'F1' | 'F2' | 'F3' | 'F4' | 'L1' | 'L2' | 'R1' | 'R2' | 'L3' | 'R3';
 
 export interface SlotDef {
   code: SlotCode;
@@ -68,29 +68,48 @@ const WALL_FITS = ['wall_mount', 'shoe_wall', 'glass_cabinet'];
 const WINDOW_FITS = ['island_display', 'mannequin', 'room_set', 'glass_cabinet'];
 const DEMO_FITS = ['demo_table', 'demo_kitchen', 'fitting_station', 'room_set', 'island_display'];
 
+/**
+ * Department floor plan (u = metres in from the shop front, v = across the frontage).
+ *
+ *   front ──────────────────────────────────────────────── back (promo wall, u = 16)
+ *   WIN1  D1 (demo, by the entrance)   L1 ═══   L2 ═══   L3 ═══ │
+ *                                         F1 ▭▭▭   F3 ▭▭▭          │  ← clear viewing zone:
+ *   door  · · · · · · · · centre aisle · · · · · · · · · · · · · ·│    nothing between the
+ *                                         F2 ▭▭▭   F4 ▭▭▭          │    last floor row and
+ *   WIN2  R0 ═══                          R1 ═══   R2 ═══   R3 ═══ │    the promo wall
+ *
+ * Floor rows and side-wall bays share the same two lines (u = 7.0 and 10.4) so the room reads as
+ * a tidy grid. L3 / R3 sit flat against the side walls beside the promo wall, never in front of it.
+ */
+export const PROMO_CLEAR_FROM_U = 12;
+
 export const SLOTS: SlotDef[] = [
   { code: 'WIN1', label: 'Window display (left)', u: 1.15, v: -3.2, fu: -1, fv: 0, kind: 'window', fits: WINDOW_FITS },
   { code: 'WIN2', label: 'Window display (right)', u: 1.15, v: 3.2, fu: -1, fv: 0, kind: 'window', fits: WINDOW_FITS },
-  { code: 'F1', label: 'Floor bay F1', u: 6.2, v: -2.35, fu: 0, fv: 1, kind: 'floor', fits: FLOOR_FITS },
-  { code: 'F2', label: 'Floor bay F2', u: 6.2, v: 2.35, fu: 0, fv: -1, kind: 'floor', fits: FLOOR_FITS },
+  { code: 'D1', label: 'Demonstration zone (by the entrance)', u: 3.65, v: -3.5, fu: 0, fv: 1, kind: 'demo', fits: DEMO_FITS },
+  { code: 'R0', label: 'Side wall R0 (by the entrance)', u: 3.6, v: 4.62, fu: 0, fv: -1, kind: 'wall', fits: WALL_FITS },
+  { code: 'F1', label: 'Floor bay F1', u: 7.0, v: -2.35, fu: 0, fv: 1, kind: 'floor', fits: FLOOR_FITS },
+  { code: 'F2', label: 'Floor bay F2', u: 7.0, v: 2.35, fu: 0, fv: -1, kind: 'floor', fits: FLOOR_FITS },
   { code: 'F3', label: 'Floor bay F3', u: 10.4, v: -2.35, fu: 0, fv: 1, kind: 'floor', fits: FLOOR_FITS },
   { code: 'F4', label: 'Floor bay F4', u: 10.4, v: 2.35, fu: 0, fv: -1, kind: 'floor', fits: FLOOR_FITS },
-  { code: 'L1', label: 'Side wall L1', u: 6.4, v: -4.62, fu: 0, fv: 1, kind: 'wall', fits: WALL_FITS },
-  { code: 'L2', label: 'Side wall L2', u: 10.6, v: -4.62, fu: 0, fv: 1, kind: 'wall', fits: WALL_FITS },
-  { code: 'R1', label: 'Side wall R1', u: 6.4, v: 4.62, fu: 0, fv: -1, kind: 'wall', fits: WALL_FITS },
-  { code: 'R2', label: 'Side wall R2', u: 10.6, v: 4.62, fu: 0, fv: -1, kind: 'wall', fits: WALL_FITS },
-  { code: 'BW1', label: 'Back wall BW1', u: 15.62, v: -3.3, fu: -1, fv: 0, kind: 'wall', fits: WALL_FITS },
-  { code: 'BW2', label: 'Back wall BW2', u: 15.62, v: 0, fu: -1, fv: 0, kind: 'wall', fits: WALL_FITS },
-  { code: 'BW3', label: 'Back wall BW3', u: 15.62, v: 3.3, fu: -1, fv: 0, kind: 'wall', fits: WALL_FITS },
-  { code: 'D1', label: 'Demonstration zone', u: 13.3, v: 0, fu: -1, fv: 0, kind: 'demo', fits: DEMO_FITS },
+  { code: 'L1', label: 'Side wall L1', u: 7.0, v: -4.62, fu: 0, fv: 1, kind: 'wall', fits: WALL_FITS },
+  { code: 'L2', label: 'Side wall L2', u: 10.4, v: -4.62, fu: 0, fv: 1, kind: 'wall', fits: WALL_FITS },
+  { code: 'L3', label: 'Side wall L3 (beside the promo wall)', u: 13.2, v: -4.62, fu: 0, fv: 1, kind: 'wall', fits: WALL_FITS },
+  { code: 'R1', label: 'Side wall R1', u: 7.0, v: 4.62, fu: 0, fv: -1, kind: 'wall', fits: WALL_FITS },
+  { code: 'R2', label: 'Side wall R2', u: 10.4, v: 4.62, fu: 0, fv: -1, kind: 'wall', fits: WALL_FITS },
+  { code: 'R3', label: 'Side wall R3 (beside the promo wall)', u: 13.2, v: 4.62, fu: 0, fv: -1, kind: 'wall', fits: WALL_FITS },
 ];
+
+/** Positions from the previous layout, which had shelving on the back wall (now the promo wall). */
+export const LEGACY_SLOT_CODES: Record<string, string> = { BW1: 'L3', BW2: 'R0', BW3: 'R3' };
 
 export const SLOT_BY_CODE: Record<string, SlotDef> = Object.fromEntries(SLOTS.map((s) => [s.code, s]));
 
 /** Legacy fixture codes from the v1 layout map onto the closest v2 slot */
 export function normaliseSlot(code?: string | null): SlotDef | null {
   if (!code) return null;
-  return SLOT_BY_CODE[code.toUpperCase()] || null;
+  const c = code.toUpperCase();
+  return SLOT_BY_CODE[c] || SLOT_BY_CODE[LEGACY_SLOT_CODES[c]] || null;
 }
 
 export interface RoomGeometry {

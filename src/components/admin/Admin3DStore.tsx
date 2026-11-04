@@ -5,7 +5,7 @@ import {
 import { mediaUrl } from '../../lib/api';
 import { StoreDepartment, StoreShelf, Product, Category, PromoScreen, LedScreen, ProductVariant, TryOnType } from '../../types';
 import { StoreMap } from '../store3d/StoreMap';
-import { SLOTS, SLOT_BY_CODE, roomForSlot, formatDeptNumber, INTERIOR_LABELS } from '../store3d/layout/storeLayout';
+import { SLOTS, SLOT_BY_CODE, roomForSlot, formatDeptNumber, INTERIOR_LABELS, PROMO_CLEAR_FROM_U } from '../store3d/layout/storeLayout';
 import { MODEL_PRESETS } from '../store3d/builder/productModels';
 import { ProductViewer3D } from '../store3d/product/ProductViewer3D';
 import { DemoVideo } from '../store3d/product/DemoVideo';
@@ -22,7 +22,7 @@ const FIXTURE_LABELS: Record<string, string> = {
   wall_mount: 'Wall-mounted shelving',
   glass_cabinet: 'Glass display cabinet',
   island_display: 'Round promotional podium',
-  demo_table: 'Product demonstration table + screen',
+  demo_table: 'Product demonstration table',
   demo_kitchen: 'Kitchen demonstration counter',
   mannequin: 'Mannequin',
   clothing_rack: 'Clothing rail',
@@ -334,27 +334,61 @@ function FixturesTab({ departments, shelves, products, call, reload, flash }: { 
     }
   };
 
-  // simple room plan: shop front at the bottom
+  // room plan: shop front at the bottom, promo wall at the top
+  const footprint = (k: string) => (k === 'wall' ? [2.5, 0.4] : k === 'floor' ? [3, 0.96] : k === 'demo' ? [2.9, 1.7] : [1.6, 1.6]);
   const plan = (
-    <svg viewBox="-6 -1 12 18" className="h-[460px] w-auto rounded-2xl bg-[#1b1916]">
+    <svg viewBox="-6 -1.6 12 18.6" className="h-[480px] w-auto rounded-2xl bg-[#1b1916]">
       <rect x={-5} y={0} width={10} height={16} fill="#2b2925" stroke="#5b564e" strokeWidth={0.05} />
+      {/* promo wall + the clear zone in front of it */}
+      <rect x={-3.9} y={0.15} width={7.8} height={16 - PROMO_CLEAR_FROM_U - 0.15} rx={0.2} fill="#c8a96a" fillOpacity={0.08} stroke="#c8a96a" strokeOpacity={0.35} strokeWidth={0.04} strokeDasharray="0.2 0.15" />
+      <rect x={-4.9} y={-0.22} width={9.8} height={0.3} rx={0.08} fill={dept.theme_color || '#c8a96a'} />
+      <text x={0} y={-0.5} textAnchor="middle" fontSize={0.42} fill="#e2c88f" fontWeight={700}>PROMO WALL</text>
+      <text x={0} y={(16 - PROMO_CLEAR_FROM_U) / 2 - 0.1} textAnchor="middle" fontSize={0.4} fill="#a99c84" fontWeight={700}>KEEP CLEAR</text>
+      <text x={0} y={(16 - PROMO_CLEAR_FROM_U) / 2 + 0.45} textAnchor="middle" fontSize={0.3} fill="#8f8574">viewing area for the promo wall</text>
       <rect x={-1.7} y={15.9} width={3.4} height={0.25} fill="#e8e3d9" />
       <text x={0} y={16.8} textAnchor="middle" fontSize={0.45} fill="#c8a96a">SHOP FRONT / ENTRANCE</text>
       {SLOTS.map((s) => {
         const has = shelves.find((x) => x.department_id === dept.id && x.slot_code === s.code);
         const x = s.v;
         const y = 16 - s.u;
-        const w = s.kind === 'wall' ? (s.code.startsWith('BW') ? 2.4 : 0.5) : s.kind === 'demo' ? 2.6 : s.kind === 'window' ? 1.5 : 1;
-        const h = s.kind === 'wall' ? (s.code.startsWith('BW') ? 0.45 : 2.4) : s.kind === 'demo' ? 1.2 : s.kind === 'window' ? 1.5 : 3;
+        const [len, dep] = footprint(s.kind);
+        // long side runs across the facing direction
+        const alongV = s.fu !== 0;
+        const w = alongV ? len : dep;
+        const h = alongV ? dep : len;
         return (
           <g key={s.code} onClick={() => setSlot(s.code)} style={{ cursor: 'pointer' }}>
-            <rect x={x - w / 2} y={y - h / 2} width={w} height={h} rx={0.15} fill={slot === s.code ? '#f3dfb4' : has ? '#c8a96a' : 'transparent'} stroke="#c8a96a" strokeWidth={0.06} strokeDasharray={has ? undefined : '0.15 0.12'} />
-            <text x={x} y={y + 0.15} textAnchor="middle" fontSize={0.4} fill={has || slot === s.code ? '#1b1916' : '#c8a96a'} fontWeight={700}>{s.code}</text>
+            <rect x={x - w / 2} y={y - h / 2} width={w} height={h} rx={0.12} fill={slot === s.code ? '#f3dfb4' : has ? '#c8a96a' : 'transparent'} stroke="#c8a96a" strokeWidth={0.06} strokeDasharray={has ? undefined : '0.15 0.12'} />
+            <text x={x} y={y + 0.14} textAnchor="middle" fontSize={0.36} fill={has || slot === s.code ? '#1b1916' : '#c8a96a'} fontWeight={700}>{s.code}</text>
           </g>
         );
       })}
     </svg>
   );
+
+  const moveTargets = slot ? SLOTS.filter((s) => s.code !== slot && !shelves.some((x) => x.department_id === dept.id && x.slot_code === s.code)) : [];
+  const moveTo = async (code: string) => {
+    if (!existing || !code) return;
+    const def = SLOT_BY_CODE[code];
+    const n = formatDeptNumber(dept.aisle_number);
+    // keep the display type if it fits the new position, otherwise use what fits there
+    const type = def.fits.includes(existing.shelf_type) ? existing.shelf_type : (def.fits[0] as StoreShelf['shelf_type']);
+    const relabel = (v: string | undefined | null, auto: string) => (!v || v === auto ? undefined : v);
+    try {
+      await call(`/api/admin/store3d/fixtures/${existing.id}`, 'PUT', {
+        slot_code: code,
+        shelf_type: type,
+        zone: def.kind === 'demo' ? 'demo' : existing.zone === 'demo' ? 'display' : existing.zone,
+        shelf_code: relabel(existing.shelf_code, `D${n}-${slot}`) ?? `D${n}-${code}`,
+        aisle_label: relabel(existing.aisle_label, `Aisle ${n} · Bay ${slot}`) ?? `Aisle ${n} · Bay ${code}`,
+      });
+      await reload();
+      setSlot(code);
+      flash(true, `Display moved to ${def.label}.`);
+    } catch (e: any) {
+      flash(false, e.message);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -368,10 +402,21 @@ function FixturesTab({ departments, shelves, products, call, reload, flash }: { 
         {plan}
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           {!slot ? (
-            <div className="text-xs text-slate-500">Select a position on the plan to add or change a display. Window displays are visible from the galleria; the demonstration zone sits at the back of the store.</div>
+            <div className="text-xs text-slate-500">Select a position on the plan to add, change or move a display. Window displays are visible from the galleria; the demonstration zone is by the entrance, and the area in front of the promo wall is always kept clear.</div>
           ) : (
             <div className="space-y-3 text-xs">
-              <div className="text-sm font-bold">{SLOT_BY_CODE[slot].label} <span className="font-mono text-slate-400">({slot})</span></div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm font-bold">{SLOT_BY_CODE[slot].label} <span className="font-mono text-slate-400">({slot})</span></div>
+                {existing && (
+                  <label className="flex items-center gap-2 whitespace-nowrap font-semibold text-slate-600">
+                    Move to
+                    <select className={`${input} w-auto`} value="" onChange={(e) => moveTo(e.target.value)} disabled={!moveTargets.length}>
+                      <option value="">{moveTargets.length ? '— choose a free position —' : 'no free positions'}</option>
+                      {moveTargets.map((t) => <option key={t.code} value={t.code}>{t.label} ({t.code})</option>)}
+                    </select>
+                  </label>
+                )}
+              </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label className={label}>Display type</label>

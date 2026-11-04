@@ -35,6 +35,38 @@ function setSetting(key: string, value: string) {
   db.prepare('INSERT INTO website_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
 }
 
+// Department positions (must match src/components/store3d/layout/storeLayout.ts SLOTS)
+const SLOT_CODES = new Set(['WIN1', 'WIN2', 'D1', 'R0', 'F1', 'F2', 'F3', 'F4', 'L1', 'L2', 'L3', 'R1', 'R2', 'R3']);
+const LEGACY_SLOT_CODES: Record<string, string> = { BW1: 'L3', BW2: 'R0', BW3: 'R3' };
+function slotCode(raw: unknown): string | null {
+  const c = String(raw || '').toUpperCase();
+  const code = LEGACY_SLOT_CODES[c] || c;
+  return SLOT_CODES.has(code) ? code : null;
+}
+
+/**
+ * The back wall of every department is now the promo screen, so nothing may stand in front of it.
+ * Shelving that was on the back wall moves to the side-wall bays beside it (BW1 → L3, BW3 → R3)
+ * or by the entrance (BW2 → R0). Runs on every start, does nothing once there is nothing to move.
+ */
+function moveBackWallFixtures() {
+  const rows = db.prepare("SELECT id, department_id, slot_code, shelf_code, aisle_label FROM store_shelves WHERE slot_code IN ('BW1', 'BW2', 'BW3')").all() as any[];
+  if (!rows.length) return;
+  const taken = db.prepare('SELECT id FROM store_shelves WHERE department_id = ? AND slot_code = ?');
+  const upd = db.prepare('UPDATE store_shelves SET slot_code = ?, shelf_code = ?, aisle_label = ? WHERE id = ?');
+  const tx = db.transaction(() => {
+    for (const r of rows) {
+      const fallback = ['L3', 'R3', 'R0', 'L2', 'R2', 'L1', 'R1'];
+      const target = [LEGACY_SLOT_CODES[r.slot_code], ...fallback].find((c) => !taken.get(r.department_id, c));
+      if (!target) continue; // every wall bay is used: leave it for the admin to place
+      const swap = (t: string | null) => (t ? t.split(r.slot_code).join(target) : t);
+      upd.run(target, swap(r.shelf_code), swap(r.aisle_label), r.id);
+    }
+  });
+  tx();
+  console.log(`Moved ${rows.length} back-wall display(s) clear of the department promo screens.`);
+}
+
 export function migrateStoreExperienceV2() {
   // Products: media, 3D, dimensions, try-on and grounded content fields
   addColumn('products', 'dimensions_json', 'TEXT'); // {"w":cm,"h":cm,"d":cm}
@@ -117,6 +149,8 @@ export function migrateStoreExperienceV2() {
     ['checkout', 'Checkout', 'Pay at the counter\nCash on delivery · Bank transfer · Card'],
     ['baskets', 'Baskets', 'Pick up a basket\nYour basket fills as you shop'],
   ].forEach((row) => seedLed.run(...row, '#c8a96a'));
+
+  moveBackWallFixtures();
 
   if (getSetting('store3d_layout_version') === LAYOUT_VERSION) return;
   console.log('Migrating ShopWalk 360 store layout to v2 (department rooms + fixtures)...');
@@ -218,7 +252,7 @@ export function migrateStoreExperienceV2() {
       dept_home: [
         ['WIN1', 'room_set', 'prod_sample_armchair', null], ['WIN2', 'island_display', 'prod_5', null],
         ['F1', 'room_set', 'prod_sample_armchair', null], ['F2', 'room_set', 'prod_sample_sidetable', null],
-        ['L1', 'wall_mount', 'prod_5', null], ['BW2', 'wall_mount', 'prod_5', null],
+        ['L1', 'wall_mount', 'prod_5', null], ['R0', 'wall_mount', 'prod_5', null],
         ['D1', 'room_set', 'prod_sample_sidetable', 'ROOM PREVIEW', 2, 'demo'],
       ],
       dept_kitchen: [
@@ -233,13 +267,13 @@ export function migrateStoreExperienceV2() {
         ['D1', 'fitting_station', 'prod_sample_shirt', 'VIRTUAL FITTING', 2, 'demo'],
       ],
       dept_shoes: [
-        ['WIN1', 'island_display', 'prod_shoes_1', null], ['BW1', 'shoe_wall', 'prod_shoes_1', null], ['BW3', 'shoe_wall', 'prod_shoes_1', null],
+        ['WIN1', 'island_display', 'prod_shoes_1', null], ['L3', 'shoe_wall', 'prod_shoes_1', null], ['R3', 'shoe_wall', 'prod_shoes_1', null],
         ['F1', 'island_display', 'prod_shoes_1', null], ['D1', 'demo_table', 'prod_shoes_1', '360° VIEW', 2, 'demo'],
       ],
       dept_watches: [
         ['WIN1', 'glass_cabinet', 'prod_watch_1', null], ['WIN2', 'glass_cabinet', 'prod_sample_sunglasses', null],
         ['F1', 'glass_cabinet', 'prod_watch_1', null], ['F2', 'glass_cabinet', 'prod_sample_sunglasses', null],
-        ['BW2', 'wall_mount', 'prod_sample_sunglasses', null],
+        ['R0', 'wall_mount', 'prod_sample_sunglasses', null],
         ['D1', 'fitting_station', 'prod_watch_1', 'TRY ON', 2, 'demo'],
       ],
       dept_beauty: [
@@ -255,7 +289,7 @@ export function migrateStoreExperienceV2() {
         ['D1', 'demo_table', 'prod_4', 'LIVE DEMO', 2, 'demo'],
       ],
       dept_travel: [
-        ['WIN1', 'island_display', 'prod_7', null], ['F1', 'gondola', 'prod_7', null], ['BW2', 'wall_mount', 'prod_7', null],
+        ['WIN1', 'island_display', 'prod_7', null], ['F1', 'gondola', 'prod_7', null], ['R0', 'wall_mount', 'prod_7', null],
       ],
       dept_office: [
         ['WIN1', 'island_display', 'prod_6', null], ['F1', 'gondola', 'prod_6', null],
@@ -263,7 +297,7 @@ export function migrateStoreExperienceV2() {
       ],
       dept_lifestyle: [
         ['WIN1', 'island_display', 'prod_sample_tote', null], ['WIN2', 'island_display', 'prod_3', 'GIFT IDEA'],
-        ['F1', 'glass_cabinet', 'prod_3', null], ['F2', 'island_display', 'prod_5', null], ['BW2', 'wall_mount', 'prod_sample_tote', null],
+        ['F1', 'glass_cabinet', 'prod_3', null], ['F2', 'island_display', 'prod_5', null], ['R0', 'wall_mount', 'prod_sample_tote', null],
       ],
     };
     const deptNumber: Record<string, number> = Object.fromEntries(deptPlan.map((d) => [d[0], d[3]]));
@@ -576,6 +610,15 @@ store3dRouter.delete('/admin/store3d/departments/:id', requireAdmin, (req, res) 
 store3dRouter.put('/admin/store3d/fixtures/:id', requireAdmin, (req, res) => {
   const b = req.body || {};
   const allowed = ['department_id', 'shelf_code', 'aisle_label', 'shelf_type', 'product_id', 'featured_label', 'slot_code', 'shelf_level', 'facing_count', 'zone', 'rotation_y'];
+  if (b.slot_code !== undefined) {
+    const code = slotCode(b.slot_code);
+    if (!code) return res.status(400).json({ error: 'That position does not exist in the department.' });
+    b.slot_code = code;
+    if (!b.department_id) {
+      const cur = db.prepare('SELECT department_id FROM store_shelves WHERE id = ?').get(req.params.id) as any;
+      b.department_id = cur?.department_id;
+    }
+  }
   if (b.slot_code && b.department_id) {
     const clash = db.prepare('SELECT id FROM store_shelves WHERE department_id = ? AND slot_code = ? AND id != ?').get(b.department_id, b.slot_code, req.params.id);
     if (clash) return res.status(400).json({ error: 'Another fixture already occupies that position.' });
@@ -595,6 +638,8 @@ store3dRouter.put('/admin/store3d/fixtures/:id', requireAdmin, (req, res) => {
 store3dRouter.post('/admin/store3d/fixtures', requireAdmin, (req, res) => {
   const b = req.body || {};
   if (!b.department_id || !b.slot_code) return res.status(400).json({ error: 'Department and position are required.' });
+  b.slot_code = slotCode(b.slot_code);
+  if (!b.slot_code) return res.status(400).json({ error: 'That position does not exist in the department.' });
   const clash = db.prepare('SELECT id FROM store_shelves WHERE department_id = ? AND slot_code = ?').get(b.department_id, b.slot_code);
   if (clash) return res.status(400).json({ error: 'Another fixture already occupies that position.' });
   const dept = db.prepare('SELECT aisle_number FROM store_departments WHERE id = ?').get(b.department_id) as any;
