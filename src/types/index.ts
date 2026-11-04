@@ -350,6 +350,10 @@ export interface StoreShelf {
   zone?: 'display' | 'demo';
   product_id?: string;
   featured_label?: string;
+  /** name on the display's sign, set by the admin (empty = named from its products) */
+  display_name?: string | null;
+  /** category of the product on this spot (layout rows) */
+  product_category?: string | null;
   demo_video_url?: string;
   tryon_type?: TryOnType;
   color_options?: string;

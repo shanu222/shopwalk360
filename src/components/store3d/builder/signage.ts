@@ -734,3 +734,63 @@ export function labelTexture(text: string, sub: string, accent: string) {
   ctx.fillText(sub, 28, 124);
   return tex(c);
 }
+
+/**
+ * Header sign on top of a display: what the display holds, readable from across the department.
+ * `w`×`h` is the canvas size; keep it in the same proportion as the sign board.
+ */
+export function displaySignTexture(title: string, subtitle: string, accent: string, w = 1536, h = 200) {
+  const c = makeCanvas(w, h);
+  const ctx = c.getContext('2d')!;
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, '#24211d');
+  g.addColorStop(1, '#151311');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+  // department colour band along the bottom and a thin gold rule along the top
+  ctx.fillStyle = accent;
+  ctx.fillRect(0, h - Math.round(h * 0.09), w, Math.round(h * 0.09));
+  ctx.fillStyle = 'rgba(226,200,143,0.7)';
+  ctx.fillRect(0, 0, w, Math.max(2, Math.round(h * 0.02)));
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const pad = w * 0.05;
+  const hasSub = !!subtitle;
+  ctx.fillStyle = '#fbf8f1';
+  spaced(ctx, Math.round(h * 0.012));
+  fitText(ctx, title, w - pad * 2, 800, Math.round(h * (hasSub ? 0.46 : 0.58)), 18);
+  ctx.fillText(title, w / 2, h * (hasSub ? 0.36 : 0.46));
+  if (hasSub) {
+    spaced(ctx, 0);
+    ctx.fillStyle = '#e2c88f';
+    fitText(ctx, subtitle, w - pad * 2, 600, Math.round(h * 0.22), 12);
+    ctx.fillText(subtitle, w / 2, h * 0.72);
+  }
+  spaced(ctx, 0);
+  return tex(c);
+}
+
+/** Shelf-edge strip under one shelf level: the product on that shelf and its price, in large type. */
+export function shelfStripTexture(name: string, price: string, accent: string, w = 1024, h = 72) {
+  const c = makeCanvas(w, h);
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#fbfaf7';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = accent;
+  ctx.fillRect(0, 0, Math.round(h * 0.18), h);
+  ctx.textBaseline = 'middle';
+  const left = Math.round(h * 0.42);
+  let priceW = 0;
+  if (price) {
+    ctx.font = `800 ${Math.round(h * 0.56)}px ${FONT}`;
+    priceW = ctx.measureText(price).width;
+    ctx.fillStyle = '#1b1c1e';
+    ctx.textAlign = 'right';
+    ctx.fillText(price, w - left * 0.8, h * 0.54);
+  }
+  ctx.fillStyle = '#1b1c1e';
+  ctx.textAlign = 'left';
+  fitText(ctx, name, w - left - priceW - left * 1.8, 800, Math.round(h * 0.58), 12);
+  ctx.fillText(name, left, h * 0.54);
+  return tex(c);
+}

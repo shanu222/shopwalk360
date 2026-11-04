@@ -445,6 +445,11 @@ function FixturesTab({ departments, shelves, products, call, reload, flash }: { 
                     {SLOT_BY_CODE[slot].fits.filter((f) => FIXTURE_LABELS[f]).map((f) => <option key={f} value={f}>{FIXTURE_LABELS[f]}</option>)}
                   </select>
                 </div>
+                <div>
+                  <label className={label}>Display name (shown on its sign)</label>
+                  <input className={input} maxLength={60} value={form.display_name || ''} onChange={(e) => setForm({ ...form, display_name: e.target.value })} placeholder="e.g. Water Bottles & Flasks" />
+                  <p className="mt-1 text-[11px] text-slate-500">Leave empty to name it from its products’ categories. Each shelf also shows the name and price of the product on it.</p>
+                </div>
                 <div className="sm:col-span-2">
                   <label className={label}>Products on this display</label>
                   <p className="mb-2 text-[11px] text-slate-500">Choose a product for each place and how many units to show there. Empty places stay empty in the store.</p>

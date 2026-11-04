@@ -102,6 +102,7 @@ export function migrateStoreExperienceV2() {
   addColumn('store_shelves', 'shelf_level', 'INTEGER DEFAULT 2');
   addColumn('store_shelves', 'facing_count', 'INTEGER DEFAULT 4');
   addColumn('store_shelves', 'zone', 'TEXT DEFAULT \'display\'');
+  addColumn('store_shelves', 'display_name', 'TEXT'); // name on the display's sign (admin); empty = named from its products
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS store_led_screens (
@@ -524,6 +525,7 @@ store3dRouter.get('/store3d/v2/layout', (_req, res) => {
         p.model_preset, p.model_3d_url, p.model_scale, p.model_rotation_deg, p.wearable_slot, p.color_options AS product_color_options, p.color_hex_map,
         p.dimensions_json, p.demo_video_url AS product_video_url, p.demo_video_type AS product_video_type,
         p.demo_video_poster AS product_video_poster, p.is_sample,
+        (SELECT name FROM categories WHERE id = p.category_id) AS product_category,
         (SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) AS primary_image,
         (SELECT ROUND(AVG(rating), 1) FROM reviews WHERE product_id = p.id) AS average_rating,
         (SELECT COUNT(*) FROM reviews WHERE product_id = p.id) AS review_count`;
@@ -765,7 +767,8 @@ store3dRouter.delete('/admin/store3d/departments/:id', requireAdmin, (req, res) 
 // ---------------- Admin: fixtures (slot-based) ----------------
 store3dRouter.put('/admin/store3d/fixtures/:id', requireAdmin, (req, res) => {
   const b = req.body || {};
-  const allowed = ['department_id', 'shelf_code', 'aisle_label', 'shelf_type', 'featured_label', 'slot_code', 'shelf_level', 'facing_count', 'zone', 'rotation_y'];
+  const allowed = ['department_id', 'shelf_code', 'aisle_label', 'shelf_type', 'featured_label', 'display_name', 'slot_code', 'shelf_level', 'facing_count', 'zone', 'rotation_y'];
+  if (typeof b.display_name === 'string') b.display_name = b.display_name.trim().slice(0, 60);
   if (b.slot_code !== undefined) {
     const code = slotCode(b.slot_code);
     if (!code) return res.status(400).json({ error: 'That position does not exist in the department.' });
@@ -807,6 +810,7 @@ store3dRouter.post('/admin/store3d/fixtures', requireAdmin, (req, res) => {
     id, b.department_id, b.shelf_code || `D${n}-${b.slot_code}`, b.aisle_label || `Aisle ${n} · Bay ${b.slot_code}`, b.shelf_type || 'gondola',
     null, b.featured_label || null, b.slot_code, Number(b.shelf_level || 2), Number(b.facing_count || 4), b.zone || 'display',
   );
+  if (typeof b.display_name === 'string' && b.display_name.trim()) db.prepare('UPDATE store_shelves SET display_name = ? WHERE id = ?').run(b.display_name.trim().slice(0, 60), id);
   if (b.product_id) saveShelfItems(id, [{ tier: 1, product_id: b.product_id, facings: b.facing_count || 4 }]);
   res.json({ success: true, id });
 });

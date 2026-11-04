@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { StaticBatcher, std, emissive, glass, contactShadowTexture, mat } from './materials';
 import { buildProductModel, parseColorMap, parseDims, resolveColor, garmentSilhouette, buildShoe, ProductModel } from './productModels';
-import { bayTagTexture, labelTexture, simpleScreenTexture } from './signage';
+import { bayTagTexture, labelTexture, simpleScreenTexture, displaySignTexture, shelfStripTexture } from './signage';
 import { StoreShelf, AvatarConfig } from '../../../types';
 import { unitsFor } from '../layout/fixtureSpots';
 import { createHumanAvatar } from '../avatar/AvatarModel';
@@ -207,6 +207,8 @@ interface FixtureCtxInternal {
   type: string;
   /** the product on a spot (1-based), if the admin put one there */
   at: (tier: number) => StoreShelf | undefined;
+  /** every product on the display, in spot order */
+  products: StoreShelf[];
 }
 
 function shadowDecal(c: FixtureBuildContext, p: Placer, w: number, d: number) {
@@ -224,12 +226,86 @@ function bayTag(c: FixtureBuildContext, p: Placer, shelf: StoreShelf, lx: number
   g.dispose();
 }
 
-function priceLabel(c: FixtureBuildContext, p: Placer, shelf: StoreShelf, lx: number, ly: number, lz: number, ry = 0, rx = 0) {
+const cleanName = (n?: string | null) => (n || '').replace(/\s*\(Sample Listing\)/, '').trim();
+const priceText = (s: StoreShelf) => {
+  const price = s.discount_price || s.regular_price;
+  return price ? `PKR ${Number(price).toLocaleString()}` : '';
+};
+
+/**
+ * What a display's sign says. The admin's name for the display comes first; otherwise the
+ * categories of the products on it. The line underneath lists the products themselves.
+ */
+export function displaySignText(shelf: StoreShelf, products: StoreShelf[]): { title: string; subtitle: string } | null {
+  const names = [...new Set(products.map((it) => cleanName(it.product_name)).filter(Boolean))];
+  const cats = [...new Set(products.map((it) => (it.product_category || '').trim()).filter(Boolean))];
+  const own = (shelf.display_name || '').trim();
+  if (!own && !names.length) return null; // nothing on it and no name: no sign
+  const title = own || (cats.length ? cats.slice(0, 3).join(' · ') : shelf.department_name || names[0]);
+  let subtitle = names.slice(0, 4).join(' · ') + (names.length > 4 ? ` +${names.length - 4} more` : '');
+  if (subtitle === title) subtitle = cats[0] && cats[0] !== title ? cats[0] : '';
+  return { title, subtitle };
+}
+
+/**
+ * Backlit sign board on top of a display, naming what it holds — readable from a distance.
+ * `both` puts the face on the back too (double-sided gondolas, islands seen from both sides).
+ */
+function headerSign(ctx: FixtureCtxInternal, shelf: StoreShelf, w: number, h: number, lx: number, ly: number, lz: number, ry = 0, both = false) {
+  const text = displaySignText(shelf, ctx.products);
+  if (!text) return;
+  const { p, c } = ctx;
+  const cw = w >= 1.5 ? 1536 : 1024;
+  const ch = Math.max(64, Math.round((cw * h) / w));
+  const key = `sign:${text.title}|${text.subtitle}|${c.palette.accent}|${cw}x${ch}`;
+  const m = mat(key, () => new THREE.MeshBasicMaterial({ map: displaySignTexture(text.title, text.subtitle, c.palette.accent, cw, ch), toneMapped: false }));
+  const T = 0.035;
+  const board = new THREE.BoxGeometry(w + 0.03, h + 0.03, T);
+  c.batch.addMatrix(board, std('#1a1815', 0.5, 0.2), p.matrix(lx, ly, lz, ry));
+  board.dispose();
+  const face = new THREE.PlaneGeometry(w, h);
+  const cs = Math.cos(ry);
+  const sn = Math.sin(ry);
+  const off = T / 2 + 0.002;
+  c.batch.addMatrix(face, m, p.matrix(lx + sn * off, ly, lz + cs * off, ry));
+  if (both) c.batch.addMatrix(face, m, p.matrix(lx - sn * off, ly, lz - cs * off, ry + Math.PI));
+  face.dispose();
+}
+
+/** Flat sign fixed to a panel (no board): end panels of gondolas. */
+function endSign(ctx: FixtureCtxInternal, shelf: StoreShelf, w: number, h: number, lx: number, ly: number, lz: number, ry: number) {
+  const text = displaySignText(shelf, ctx.products);
+  if (!text) return;
+  const { p, c } = ctx;
+  const cw = 768;
+  const ch = Math.round((cw * h) / w);
+  const key = `endsign:${text.title}|${text.subtitle}|${c.palette.accent}|${cw}x${ch}`;
+  const m = mat(key, () => new THREE.MeshBasicMaterial({ map: displaySignTexture(text.title, text.subtitle, c.palette.accent, cw, ch), toneMapped: false }));
+  const g = new THREE.PlaneGeometry(w, h);
+  c.batch.addMatrix(g, m, p.matrix(lx, ly, lz, ry));
+  g.dispose();
+}
+
+/** Strip along the front edge of one shelf level: the product on it and its price, in large type. */
+function shelfStrip(ctx: FixtureCtxInternal, item: StoreShelf, w: number, lx: number, ly: number, lz: number, ry = 0) {
+  const name = cleanName(item.product_name);
+  if (!name) return;
+  const { p, c } = ctx;
+  const h = 0.085;
+  const cw = 1536;
+  const ch = Math.round((cw * h) / w);
+  const key = `strip:${item.product_id}:${c.palette.accent}:${cw}x${ch}`;
+  const m = mat(key, () => new THREE.MeshBasicMaterial({ map: shelfStripTexture(name, priceText(item), c.palette.accent, cw, ch), toneMapped: false }));
+  const g = new THREE.PlaneGeometry(w, h);
+  c.batch.addMatrix(g, m, p.matrix(lx, ly, lz, ry));
+  g.dispose();
+}
+
+function priceLabel(c: FixtureBuildContext, p: Placer, shelf: StoreShelf, lx: number, ly: number, lz: number, ry = 0, rx = 0, w = 0.42) {
   if (!shelf.product_name) return;
-  const price = shelf.discount_price || shelf.regular_price;
   const key = `label:${shelf.product_id}`;
-  const m = mat(key, () => new THREE.MeshBasicMaterial({ map: labelTexture(shelf.product_name!.replace(/\s*\(Sample Listing\)/, ''), price ? `PKR ${Number(price).toLocaleString()}` : '', c.palette.accent) }));
-  const g = new THREE.PlaneGeometry(0.32, 0.1);
+  const m = mat(key, () => new THREE.MeshBasicMaterial({ map: labelTexture(cleanName(shelf.product_name), priceText(shelf), c.palette.accent) }));
+  const g = new THREE.PlaneGeometry(w, w / 3.2);
   c.batch.addMatrix(g, m, p.matrix(lx, ly, lz, ry, rx));
   g.dispose();
 }
@@ -263,12 +339,19 @@ function gondola(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult {
       const item = ctx.at(tier);
       const yaw = side === 1 ? 0 : Math.PI;
       merchandise(ctx, item, -W / 2 + 0.08, W / 2 - 0.08, y + 0.015, side * (D / 4 + 0.01), yaw, D / 2 - 0.08);
-      if (item) priceLabel(c, p, item, 0, y - 0.065, side * (D / 2 + 0.003), yaw);
+      if (item) shelfStrip(ctx, item, 1.9, 0, y - 0.062, side * (D / 2 + 0.004), yaw);
       spots.push({ tier, item, lx: 0, ly: y + 0.18, lz: side * (D / 4), w: W - 0.1, h: 0.36, d: D / 2, back: side === -1 });
     });
   });
   add(W + 0.04, 0.04, D + 0.04, 0, H + 0.02, 0, body);
   [-1, 1].forEach((side) => bayTag(c, p, shelf, side * (W / 2 + 0.03), H - 0.15, 0, side * Math.PI / 2));
+  // sign on top, both faces, on two slim posts
+  if (displaySignText(shelf, ctx.products)) {
+    [-1, 1].forEach((sx) => add(0.035, 0.2, 0.035, sx * (W / 2 - 0.45), H + 0.14, 0, std(c.palette.metal || '#2a2723', 0.35, 0.8)));
+    headerSign(ctx, shelf, W - 0.3, 0.36, 0, H + 0.42, 0, 0, true);
+    // the same sign on both end panels, so the aisle reads from the walkway
+    [-1, 1].forEach((side) => endSign(ctx, shelf, D - 0.14, 0.3, side * (W / 2 + 0.026), 1.02, 0, side * Math.PI / 2));
+  }
   shadowDecal(c, p, W, D);
   return { w: W, d: D, h: H, dynamic: [], spots };
 }
@@ -296,12 +379,13 @@ function wallMount(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult {
     add(W - 0.14, 0.01, 0.01, 0, y - 0.018, D / 2 - 0.04, emissive('#fff3dd', 1.1));
     const item = ctx.at(i + 1);
     merchandise(ctx, item, -W / 2 + 0.12, W / 2 - 0.12, y + 0.014, 0.02, 0, D - 0.12, i === 3 ? 0.4 : 0.42);
-    if (item) priceLabel(c, p, item, 0, y - 0.07, D / 2 + 0.005);
+    if (item) shelfStrip(ctx, item, 1.7, 0, y - 0.058, D / 2 + 0.005);
     spots.push({ tier: i + 1, item, lx: 0, ly: y + 0.2, lz: 0.02, w: W - 0.2, h: 0.4, d: D - 0.1, back: false });
   });
   bayTag(c, p, shelf, W / 2 - 0.3, H - 0.12, D / 2 + 0.005);
-  // backlit header strip in department colour
+  // backlit header strip in department colour, and the sign naming what this wall holds
   add(W - 0.2, 0.05, 0.02, 0, H - 0.04, D / 2 - 0.01, emissive(c.palette.accent, 0.9));
+  headerSign(ctx, shelf, W - 0.2, 0.34, 0, H + 0.22, 0);
   return { w: W, d: D, h: H, dynamic: [], spots };
 }
 
@@ -340,11 +424,15 @@ function glassCabinet(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult
     const item = ctx.at(i + 1);
     if (item) {
       hero(ctx, item, 0, x, baseH + 0.06, 0, 0.25, 0.3);
-      priceLabel(c, p, item, x, baseH - 0.12, D / 2 + 0.004);
+      priceLabel(c, p, item, x, baseH - 0.12, D / 2 + 0.004, 0, 0, 0.38);
     }
     spots.push({ tier: i + 1, item, lx: x, ly: baseH + 0.2, lz: 0, w: 0.4, h: 0.38, d: D - 0.1, back: false });
   });
   bayTag(c, p, shelf, -W / 2 + 0.22, 0.2, D / 2 + 0.004);
+  if (displaySignText(shelf, ctx.products)) {
+    [-1, 1].forEach((sx) => add(0.02, 0.16, 0.02, sx * (W / 2 - 0.25), baseH + 0.48, 0, std(c.palette.metal, 0.3, 0.9)));
+    headerSign(ctx, shelf, W - 0.1, 0.24, 0, baseH + 0.68, 0, 0, true);
+  }
   shadowDecal(c, p, W, D);
   return { w: W, d: D, h: baseH + 0.4, dynamic: [], spots };
 }
@@ -487,7 +575,8 @@ function clothingRack(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult
     spots.push({ tier: i + 1, item, lx: cx, ly: 1.15, lz: 0, w: W / 2 - 0.05, h: 0.8, d: 0.5, back: false });
   });
   bayTag(c, p, shelf, 0, 1.62, 0.02);
-  shadowDecal(c, p, W, 0.5);
+  headerSign(ctx, shelf, 1.3, 0.24, 0, 1.86, 0, 0, true);
+  if (displaySignText(shelf, ctx.products)) add(new THREE.CylinderGeometry(0.01, 0.01, 0.2, 8), metal, 0, 1.66, 0);
   return { w: W + 0.1, d: 0.6, h: 1.6, dynamic: [], spots };
 }
 
@@ -519,6 +608,7 @@ function vanity(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult {
     spots.push({ tier: i + 1, item, lx: cx, ly: H + 0.15, lz: 0.08, w: 0.9, h: 0.3, d: D - 0.1, back: false });
   });
   bayTag(c, p, shelf, -W / 2 + 0.22, 0.2, D / 2 + 0.004);
+  headerSign(ctx, shelf, W - 0.3, 0.26, 0, H + 1.05, -D / 2 + 0.04);
   shadowDecal(c, p, W, D);
   return { w: W, d: D, h: 1.6, dynamic: [], spots };
 }
@@ -621,10 +711,11 @@ function shoeWall(ctx: FixtureCtxInternal, shelf: StoreShelf): FixtureResult {
         }
       }
     }
-    if (item) priceLabel(c, p, item, W / 2 - 0.2, y - 0.08, 0.12);
+    if (item) shelfStrip(ctx, item, 1.6, 0, y - 0.07, 0.13);
     spots.push({ tier: row + 1, item, lx: 0, ly: y + 0.15, lz: 0, w: W - 0.1, h: 0.36, d: D, back: false });
   }
   bayTag(c, p, shelf, W / 2 - 0.25, H - 0.1, -D / 2 + 0.03);
+  headerSign(ctx, shelf, W - 0.2, 0.34, 0, H + 0.2, -D / 2 + 0.05);
   return { w: W, d: D + 0.1, h: H, dynamic: [], spots };
 }
 
@@ -642,6 +733,7 @@ export function buildFixture(c: FixtureBuildContext, shelf: StoreShelf, items: S
     type,
     // only real, published products (a row without a product name is never drawn)
     at: (tier) => items.find((it) => it.product_id && it.product_name && (it.tier || 1) === tier),
+    products: items.filter((it) => it.product_id && it.product_name).sort((a, b) => (a.tier || 1) - (b.tier || 1)),
   };
   switch (type) {
     case 'wall_mount': return wallMount(ctx, shelf);
