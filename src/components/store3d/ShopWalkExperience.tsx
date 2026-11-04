@@ -87,6 +87,7 @@ export default function ShopWalkExperience(props: Props) {
   });
   const [route, setRoute] = useState<{ x: number; z: number }[] | null>(null);
   const [walking, setWalking] = useState(false);
+  const [autoWalk, setAutoWalk] = useState(false);
   const [inspect, setInspect] = useState<StoreShelf | null>(null);
   /** the product the shopper is holding, shown up close */
   const [closeup, setCloseup] = useState<StoreShelf | null>(null);
@@ -169,6 +170,10 @@ export default function ShopWalkExperience(props: Props) {
             showToast(`Graphics set to ${q} so the store runs smoothly on this device.`);
           },
           onAvatarError: showToast,
+          onAutoWalkChange: (on, reason) => {
+            setAutoWalk(on);
+            if (reason === 'blocked') showToast('Stopped: something is in the way. Turn and tap Auto-walk again.');
+          },
         });
         engine.current = eng;
         (window as any).__shopwalk = eng; // handy for support / automated checks
@@ -485,6 +490,12 @@ export default function ShopWalkExperience(props: Props) {
           tryOns={tryOns}
           muted={muted}
           isTouch={isTouch}
+          autoWalk={autoWalk}
+          onToggleAutoWalk={() => {
+            const e = engine.current;
+            if (!e) return;
+            e.setAutoWalk(!e.isAutoWalking());
+          }}
           walking={walking}
           onToggleCamera={() => setCameraMode((m) => (m === 'third_person' ? 'first_person' : 'third_person'))}
           onOpenAvatar={() => openStudio('preview', false)}

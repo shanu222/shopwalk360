@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
   ShoppingBag, Search, Map as MapIcon, Navigation, Camera, User, LayoutGrid, Zap, Settings, HelpCircle, X, ArrowRight, Footprints, Route,
-  Volume2, VolumeX, Store, Shirt, MapPin, ChevronRight, Eye, Users, EyeOff,
+  Volume2, VolumeX, Store, Shirt, MapPin, ChevronRight, Eye, Users, EyeOff, Square,
 } from 'lucide-react';
 import { StoreDepartment, StoreShelf, TryOnOverride } from '../../types';
 import { InteractiveTarget } from './builder/storeBuilder';
@@ -37,6 +37,9 @@ interface Props {
   muted: boolean;
   isTouch: boolean;
   walking: boolean;
+  /** auto-walk is on (the shopper keeps walking forward) */
+  autoWalk: boolean;
+  onToggleAutoWalk: () => void;
   onToggleCamera: () => void;
   onOpenAvatar: () => void;
   onLobby: () => void;
@@ -285,6 +288,39 @@ export const StoreHUD: React.FC<Props> = (p) => {
         </div>
       )}
 
+      {/* AUTO-WALK: one tap and the shopper keeps walking; turn the view to steer */}
+      {!p.walking && (
+        <>
+          <button
+            onClick={p.onToggleAutoWalk}
+            aria-pressed={p.autoWalk}
+            title={p.autoWalk ? 'Stop walking (R)' : 'Walk forward without holding a key (R)'}
+            className={`pointer-events-auto absolute left-1/2 hidden -translate-x-1/2 items-center gap-2 rounded-full border px-4 py-2.5 text-xs font-bold shadow-xl backdrop-blur-md transition md:flex ${p.nearest && p.nearest.kind !== 'product' && !panel ? 'bottom-[6.75rem]' : 'bottom-4'} ${p.autoWalk ? 'border-[#c8a96a] bg-[#c8a96a] text-[#1a1712] hover:bg-[#d6b97c]' : 'border-white/15 bg-[#1a1816]/85 text-white hover:bg-[#2a2723]'}`}
+          >
+            {p.autoWalk ? (
+              <>
+                <span className="relative flex h-2.5 w-2.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#1a1712]/50" /><span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#1a1712]" /></span>
+                Walking · <Square className="h-3 w-3 fill-current" /> Stop
+              </>
+            ) : (
+              <>
+                <Footprints className="h-4 w-4 text-[#e2c88f]" /> Auto-walk
+              </>
+            )}
+            <span className={`rounded px-1 font-mono text-[10px] ${p.autoWalk ? 'bg-black/15' : 'bg-white/10 text-white/70'}`}>R</span>
+          </button>
+          <button
+            onClick={p.onToggleAutoWalk}
+            aria-pressed={p.autoWalk}
+            aria-label={p.autoWalk ? 'Stop walking' : 'Auto-walk: keep walking forward'}
+            className={`pointer-events-auto absolute bottom-[3.25rem] left-[10.25rem] z-30 flex flex-col items-center gap-0.5 rounded-2xl border px-3 py-2 text-[10px] font-bold shadow-xl backdrop-blur-md md:hidden ${p.autoWalk ? 'border-[#c8a96a] bg-[#c8a96a] text-[#1a1712]' : 'border-white/15 bg-[#1a1816]/85 text-white'}`}
+          >
+            {p.autoWalk ? <Square className="h-4 w-4 fill-current" /> : <Footprints className="h-4 w-4 text-[#e2c88f]" />}
+            {p.autoWalk ? 'Stop' : 'Auto-walk'}
+          </button>
+        </>
+      )}
+
       {/* MINIMAP */}
       <button onClick={() => setPanel('map')} aria-label="Open the store map" className="pointer-events-auto absolute bottom-4 right-4 hidden overflow-hidden rounded-2xl border border-white/15 bg-[#151311]/85 p-1.5 shadow-xl backdrop-blur-md md:block">
         <StoreMap departments={p.departments} shelves={p.shelves} player={p.player} route={p.route} highlightShelfId={p.highlightShelfId} showLabels={false} className="h-48 w-[112px]" title="Mini map" />
@@ -309,7 +345,7 @@ export const StoreHUD: React.FC<Props> = (p) => {
 
       {!p.isTouch && !panel && !p.nearest && (
         <div className="absolute bottom-4 left-4 hidden rounded-2xl border border-white/10 bg-[#1a1816]/70 px-3 py-2 text-[11px] text-white/65 backdrop-blur md:block">
-          <b className="text-white/85">Click</b> the floor to walk · <b className="text-white/85">Click a product</b> to pick it up · <b className="text-white/85">Drag</b> to look · <b className="text-white/85">WASD</b> to walk
+          <b className="text-white/85">Click</b> the floor to walk · <b className="text-white/85">Click a product</b> to pick it up · <b className="text-white/85">Drag</b> to look · <b className="text-white/85">WASD</b> to walk · <b className="text-white/85">R</b> auto-walk
         </div>
       )}
 
@@ -480,6 +516,7 @@ export const StoreHUD: React.FC<Props> = (p) => {
                     <li><b>W A S D</b> or <b>arrow keys</b> walk; hold <b>Shift</b> to walk faster.</li>
                     <li><b>Drag</b> to look around; <b>scroll</b> to zoom.</li>
                     <li>Press <b>E</b> next to a product to pick it up. Then put it in your basket, see full details, or put it back.</li>
+                    <li><b>Auto-walk</b> (or <b>R</b>): keep walking without holding a key. Drag or use <b>A D</b> / <b>← →</b> to steer; press it again, or <b>W</b> / <b>S</b>, to stop.</li>
                   </ul>
                 </div>
                 <div className="rounded-2xl bg-white/[0.04] p-4">
@@ -487,6 +524,7 @@ export const StoreHUD: React.FC<Props> = (p) => {
                   <ul className="space-y-1.5 text-xs">
                     <li><b>Tap</b> the floor or a display to walk there.</li>
                     <li>Use the <b>joystick</b> to walk; <b>drag</b> elsewhere to look; <b>pinch</b> to zoom.</li>
+                    <li>Tap <b>Auto-walk</b> to keep walking without holding the joystick; drag the view to steer, tap <b>Stop</b> (or use the joystick) to stop.</li>
                   </ul>
                 </div>
                 <div className="rounded-2xl bg-white/[0.04] p-4 text-xs">

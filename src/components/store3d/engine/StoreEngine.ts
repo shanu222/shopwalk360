@@ -28,6 +28,8 @@ export interface EngineEvents {
   onArrive?: (id: string | null) => void;
   onEntered?: () => void;
   onContextLost?: () => void;
+  /** auto-walk switched on or off (`reason` says why it stopped by itself) */
+  onAutoWalkChange?: (on: boolean, reason?: 'blocked' | 'control') => void;
   /** the browser gave the 3D view back (it redraws by itself) */
   onContextRestored?: () => void;
   onQualityDrop?: (q: Quality) => void;
@@ -95,6 +97,9 @@ export class StoreEngine {
   private turnRate = 0;
   private keys: Record<string, boolean> = {};
   private joystick = { x: 0, y: 0 };
+  /** auto-walk: keeps walking forward (where the view faces) until stopped */
+  private autoWalk = false;
+  private autoStuck = 0;
 
   // navigation
   private path: { x: number; z: number }[] = [];
@@ -473,6 +478,27 @@ export class StoreEngine {
     if (p) this.videos.forEach((v) => v.pause());
   }
 
+  /**
+   * Auto-walk on/off. While on, the shopper walks forward in the direction the view faces —
+   * turn the view (drag, or A/D and ←/→ on a keyboard) to steer. Walking with the joystick or
+   * W/S, clicking somewhere to walk to, or bumping into something stops it.
+   */
+  setAutoWalk(on: boolean, reason?: 'blocked' | 'control') {
+    if (on && (this.state === 'loading' || this.state === 'entering' || !this.inputEnabled)) on = false;
+    if (on === this.autoWalk) return;
+    this.autoWalk = on;
+    this.autoStuck = 0;
+    if (on) {
+      this.cancelPath(false);
+      if (this.state === 'outside') this.state = 'inside';
+    }
+    this.events.onAutoWalkChange?.(on, on ? undefined : reason);
+  }
+
+  isAutoWalking() {
+    return this.autoWalk;
+  }
+
   setJoystick(x: number, y: number) {
     this.joystick.x = x;
     this.joystick.y = y;
@@ -742,6 +768,7 @@ export class StoreEngine {
   /* ----------------------------------------------------------------------------- movement API */
 
   teleport(x: number, z: number, yaw: number, state?: EngineState) {
+    this.setAutoWalk(false);
     this.pos.set(x, 0, z);
     this.yaw = yaw;
     this.camYaw = yaw;
@@ -809,6 +836,7 @@ export class StoreEngine {
 
   /** Walk to a point (path-finding). `guide` keeps the route visible. */
   walkTo(x: number, z: number, opts: { id?: string | null; face?: THREE.Vector3; interact?: InteractiveTarget; speed?: number; guide?: boolean } = {}) {
+    this.setAutoWalk(false);
     if (!this.nav || this.state === 'loading' || this.state === 'entering') return false;
     if (this.state === 'outside') this.state = 'inside';
     const path = this.nav.findPath(this.pos.x, this.pos.z, x, z);
@@ -922,6 +950,7 @@ export class StoreEngine {
     if (k === 'ShiftLeft' || k === 'ShiftRight') this.keys.Shift = true;
     if (k === 'KeyQ') this.keys.KeyQ = true;
     if (k === 'KeyE') this.keys.KeyE = true;
+    if (k === 'KeyR' && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) this.setAutoWalk(!this.autoWalk);
   };
 
   private onKeyUp = (e: KeyboardEvent) => {
@@ -1161,6 +1190,18 @@ export class StoreEngine {
       ix += this.joystick.x;
       iz += -this.joystick.y;
     }
+    if (this.autoWalk) {
+      const keyFwd = this.keys.KeyW || this.keys.ArrowUp || this.keys.KeyS || this.keys.ArrowDown;
+      if (!this.inputEnabled || this.state === 'loading' || this.state === 'entering') this.setAutoWalk(false);
+      else if (keyFwd || Math.hypot(this.joystick.x, this.joystick.y) > 0.3) this.setAutoWalk(false, 'control');
+      else {
+        // A/D and ←/→ steer instead of stepping sideways
+        const turn = (this.keys.KeyD || this.keys.ArrowRight ? 1 : 0) - (this.keys.KeyA || this.keys.ArrowLeft ? 1 : 0);
+        if (turn) this.camYaw -= turn * 1.9 * dt;
+        ix = 0;
+        iz = 1;
+      }
+    }
     if (this.keys.KeyE) {
       this.keys.KeyE = false;
       this.interactNearest();
@@ -1179,6 +1220,11 @@ export class StoreEngine {
       mz /= ml;
       const speed = (this.keys.Shift ? 2.7 : 1.55) * this.pace * len;
       moved = this.moveWithCollision(mx * speed * dt, mz * speed * dt);
+      if (this.autoWalk) {
+        // walked into something: stop instead of pushing against it
+        this.autoStuck = moved < speed * dt * 0.15 ? this.autoStuck + dt : 0;
+        if (this.autoStuck > 0.7) this.setAutoWalk(false, 'blocked');
+      }
       wantYaw = Math.atan2(mx, mz);
       if (this.cameraMode === 'first_person') wantYaw = this.camYaw;
     } else if (this.path.length) {
