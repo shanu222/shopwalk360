@@ -1,7 +1,7 @@
 import { mediaUrl, screenMediaUrl } from '../../../lib/api';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { buildStore, BuiltStore, InteractiveTarget } from '../builder/storeBuilder';
+import { buildStore, BuiltStore, InteractiveTarget, VideoScreen } from '../builder/storeBuilder';
 import { skyTexture, setMaxAnisotropy, contactShadowTexture } from '../builder/materials';
 import { createHumanAvatar, AvatarRig, normaliseAvatarConfig } from '../avatar/AvatarModel';
 import { createGlbAvatar, getGLTFLoader } from '../avatar/glbAvatar';
@@ -107,7 +107,9 @@ export class StoreEngine {
   private doorOpen = 0;
   private doorWasOpen = false;
   private lastStep = 0;
-  private videos = new Map<string, { video: HTMLVideoElement; texture: THREE.VideoTexture; ledMap: THREE.Texture | null; shown: boolean }>();
+  private videos = new Map<string, ScreenPlayer>();
+  private videoFrustum = new THREE.Frustum();
+  private videoProj = new THREE.Matrix4();
   private videoGaveUp = new Set<string>();
   private fpsSamples: number[] = [];
   private lastQualityCheck = 0;
@@ -420,7 +422,7 @@ export class StoreEngine {
 
   setPaused(p: boolean) {
     this.paused = p;
-    if (p) this.videos.forEach((v) => v.video.pause());
+    if (p) this.videos.forEach((v) => v.pause());
   }
 
   setJoystick(x: number, y: number) {
@@ -739,7 +741,7 @@ export class StoreEngine {
   };
 
   private onVisibility = () => {
-    if (document.hidden) this.videos.forEach((v) => v.video.pause());
+    if (document.hidden) this.videos.forEach((v) => v.pause());
   };
 
   private onPointerDown = (e: PointerEvent) => {
@@ -1099,60 +1101,50 @@ export class StoreEngine {
     this.hemi.color.lerp(this.lightTarget, 0.03);
   }
 
+  /**
+   * Only a few screens decode video at once: the nearest ones the shopper can actually see.
+   * Every browser stutters when it decodes a dozen clips together, so the rest wait on their LED
+   * picture, and screens far away let go of their video entirely to free memory.
+   */
   private updateVideos() {
     if (!this.store) return;
+    const cap = this.quality === 'high' ? 4 : this.quality === 'balanced' ? 3 : 2;
+    this.camera.updateMatrixWorld();
+    this.videoProj.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+    this.videoFrustum.setFromProjectionMatrix(this.videoProj);
+    const sphere = new THREE.Sphere();
+    const ranked: { s: VideoScreen; score: number }[] = [];
     for (const s of this.store.videoScreens) {
       const d = Math.hypot(s.center.x - this.pos.x, s.center.z - this.pos.z);
-      const id = s.id;
-      const near = d < 42;
-      let v = this.videos.get(id);
-      if (near && !this.paused && !this.videoGaveUp.has(id)) {
-        if (!v) {
-          const mat = s.mesh.material as THREE.MeshBasicMaterial;
-          const video = document.createElement('video');
-          video.crossOrigin = 'anonymous';
-          video.muted = true;
-          video.defaultMuted = true;
-          video.loop = true;
-          video.playsInline = true;
-          video.autoplay = true;
-          video.preload = 'auto';
-          video.setAttribute('muted', '');
-          video.setAttribute('playsinline', '');
-          video.setAttribute('webkit-playsinline', '');
-          const texture = new THREE.VideoTexture(video);
-          texture.colorSpace = THREE.SRGBColorSpace;
-          texture.minFilter = THREE.LinearFilter;
-          texture.magFilter = THREE.LinearFilter;
-          texture.generateMipmaps = false;
-          v = { video, texture, ledMap: mat.map, shown: false };
-          this.videos.set(id, v);
-          video.addEventListener('loadeddata', () => {
-            const cur = this.videos.get(id);
-            if (!cur) return;
-            fitVideoCover(cur.texture, video, s.mesh);
-            const m = s.mesh.material as THREE.MeshBasicMaterial;
-            m.map = cur.texture;
-            m.color.set('#ffffff');
-            m.needsUpdate = true;
-            cur.shown = true;
+      const player = this.videos.get(s.id);
+      if (d > 60 && player) {
+        player.release();
+        this.videos.delete(s.id);
+        continue;
+      }
+      if (d >= 42 || this.paused || document.hidden || this.videoGaveUp.has(s.id)) continue;
+      sphere.set(s.center, 1.8);
+      const visible = this.videoFrustum.intersectsSphere(sphere);
+      // on-screen screens first; the one already playing keeps its place unless another is clearly better
+      let score = visible ? d : d + 40;
+      if (player?.playing) score *= 0.8;
+      ranked.push({ s, score });
+    }
+    ranked.sort((a, b) => a.score - b.score);
+    const chosen = new Set(ranked.slice(0, cap).map((r) => r.s.id));
+    for (const s of this.store.videoScreens) {
+      let player = this.videos.get(s.id);
+      if (chosen.has(s.id)) {
+        if (!player) {
+          player = new ScreenPlayer(s, () => {
+            this.videos.get(s.id)?.release();
+            this.videos.delete(s.id);
+            this.videoGaveUp.add(s.id);
           });
-          video.addEventListener('error', () => {
-            const cur = this.videos.get(id);
-            if (cur?.shown) {
-              const m = s.mesh.material as THREE.MeshBasicMaterial;
-              m.map = cur.ledMap;
-              m.needsUpdate = true;
-            }
-            cur?.texture.dispose();
-            this.videos.delete(id);
-            this.videoGaveUp.add(id);
-          });
-          video.src = screenMediaUrl(s.videoUrl);
-          video.load();
+          this.videos.set(s.id, player);
         }
-        if (v.video.paused) v.video.play().catch(() => {});
-      } else if (v && !v.video.paused) v.video.pause();
+        player.play();
+      } else player?.pause();
     }
   }
 
@@ -1290,17 +1282,179 @@ export class StoreEngine {
     window.removeEventListener('blur', this.onBlur);
     window.removeEventListener('resize', this.onResize);
     document.removeEventListener('visibilitychange', this.onVisibility);
-    this.videos.forEach((v) => {
-      v.video.pause();
-      v.video.removeAttribute('src');
-      v.video.load();
-      v.texture.dispose();
-    });
+    this.videos.forEach((v) => v.release());
+    this.videos.clear();
     this.avatar?.dispose();
     this.store?.dispose();
     this.clearRoute();
     this.renderer.dispose();
     this.renderer.domElement.remove();
+  }
+}
+
+/**
+ * Plays one screen's clips. A single clip loops. With several, the next clip loads while the current
+ * one plays, and the screen switches on the new clip's first decoded frame, so there is no black gap.
+ * The LED picture stays up until the first frame is ready, and comes back if nothing can play.
+ */
+interface Clip {
+  i: number;
+  video: HTMLVideoElement;
+  texture: THREE.VideoTexture;
+  ready: boolean;
+}
+
+class ScreenPlayer {
+  playing = false;
+  private cur: Clip | null = null;
+  private next: Clip | null = null;
+  private shown: Clip | null = null;
+  private failed = new Set<number>();
+  private ledMap: THREE.Texture | null;
+  private wantPlay = false;
+  private released = false;
+  private readonly list: string[];
+
+  constructor(private screen: VideoScreen, private onGiveUp: () => void) {
+    this.ledMap = (screen.mesh.material as THREE.MeshBasicMaterial).map;
+    this.list = (screen.playlist?.length ? screen.playlist : [screen.videoUrl]).filter(Boolean);
+    if (!this.list.length) {
+      queueMicrotask(onGiveUp);
+      return;
+    }
+    this.cur = this.makeClip(0);
+  }
+
+  private makeClip(i: number): Clip {
+    const video = document.createElement('video');
+    video.crossOrigin = 'anonymous';
+    video.muted = true;
+    video.defaultMuted = true;
+    video.loop = this.list.length === 1;
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.setAttribute('muted', '');
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', '');
+    video.disablePictureInPicture = true;
+    const texture = new THREE.VideoTexture(video);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    const clip: Clip = { i, video, texture, ready: false };
+    video.addEventListener('loadeddata', () => {
+      if (this.released) return;
+      fitVideoCover(texture, video, this.screen.mesh);
+      clip.ready = true;
+      if (clip === this.cur) this.present(clip);
+    });
+    video.addEventListener('ended', () => {
+      if (clip === this.cur) this.advance();
+    });
+    video.addEventListener('error', () => this.onError(clip));
+    video.src = screenMediaUrl(this.list[i]);
+    video.load();
+    return clip;
+  }
+
+  /** Put a clip on the screen and let go of the one it replaces. */
+  private present(clip: Clip) {
+    if (this.shown === clip) return;
+    const m = this.screen.mesh.material as THREE.MeshBasicMaterial;
+    m.map = clip.texture;
+    m.color.set('#ffffff');
+    m.needsUpdate = true;
+    if (this.shown) this.drop(this.shown);
+    this.shown = clip;
+    this.preloadNext();
+  }
+
+  private nextIndex(from: number) {
+    const n = this.list.length;
+    for (let k = 1; k <= n; k++) {
+      const j = (from + k) % n;
+      if (!this.failed.has(j)) return j;
+    }
+    return -1;
+  }
+
+  private preloadNext() {
+    if (this.released || this.list.length < 2 || this.next || !this.cur) return;
+    const j = this.nextIndex(this.cur.i);
+    if (j < 0 || j === this.cur.i) return;
+    this.next = this.makeClip(j);
+  }
+
+  private advance() {
+    if (this.released || !this.cur) return;
+    let nxt = this.next;
+    this.next = null;
+    if (!nxt) {
+      const j = this.nextIndex(this.cur.i);
+      if (j < 0) return this.giveUp();
+      if (j === this.cur.i) {
+        // only one clip still works: loop it
+        this.cur.video.loop = true;
+        this.cur.video.currentTime = 0;
+        if (this.wantPlay) this.cur.video.play().catch(() => {});
+        return;
+      }
+      nxt = this.makeClip(j);
+    }
+    const old = this.cur;
+    this.cur = nxt;
+    if (old !== this.shown) this.drop(old);
+    if (this.wantPlay) nxt.video.play().catch(() => {});
+    if (nxt.ready) this.present(nxt);
+  }
+
+  private onError(clip: Clip) {
+    if (this.released) return;
+    this.failed.add(clip.i);
+    if (this.failed.size >= this.list.length) return this.giveUp();
+    if (clip === this.next) {
+      this.drop(clip);
+      this.next = null;
+      this.preloadNext();
+    } else if (clip === this.cur) this.advance();
+  }
+
+  private giveUp() {
+    this.release();
+    this.onGiveUp();
+  }
+
+  play() {
+    if (this.released || !this.cur) return;
+    this.wantPlay = true;
+    this.playing = true;
+    const v = this.cur.video;
+    if (v.paused && !v.ended) v.play().catch(() => {});
+  }
+
+  pause() {
+    this.wantPlay = false;
+    this.playing = false;
+    if (this.cur && !this.cur.video.paused) this.cur.video.pause();
+  }
+
+  private drop(c: Clip) {
+    c.video.pause();
+    c.video.removeAttribute('src');
+    c.video.load();
+    c.texture.dispose();
+  }
+
+  release() {
+    if (this.released) return;
+    this.released = true;
+    this.playing = false;
+    const m = this.screen.mesh.material as THREE.MeshBasicMaterial;
+    m.map = this.ledMap;
+    m.needsUpdate = true;
+    new Set([this.cur, this.next, this.shown]).forEach((c) => c && this.drop(c));
+    this.cur = this.next = this.shown = null;
   }
 }
 

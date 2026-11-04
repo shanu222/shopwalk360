@@ -32,7 +32,10 @@ export interface InteractiveTarget {
 export interface VideoScreen {
   mesh: THREE.Mesh;
   id: string;
+  /** first clip (kept for older callers) */
   videoUrl: string;
+  /** clips played one after another; a single clip loops */
+  playlist: string[];
   center: THREE.Vector3;
 }
 
@@ -157,7 +160,7 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     mesh.position.set(x, y, z);
     mesh.rotation.y = ry;
     root.add(mesh);
-    if (row?.video_url) videoScreens.push({ mesh, id: `led_${key}`, videoUrl: row.video_url, center: mesh.position.clone() });
+    if (row?.video_url) videoScreens.push({ mesh, id: `led_${key}`, videoUrl: row.video_url, playlist: [row.video_url], center: mesh.position.clone() });
     return mesh;
   };
   const disposables: { dispose: () => void }[] = [];
@@ -441,7 +444,7 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
       promoMesh.position.set(x + Math.sin(ry) * 0.1, 1.4, z + Math.cos(ry) * 0.1);
       promoMesh.rotation.y = ry;
       root.add(promoMesh);
-      if (p.video_url) videoScreens.push({ mesh: promoMesh, id: `promo_${p.id}`, videoUrl: p.video_url, center: promoMesh.position.clone() });
+      if (p.video_url) videoScreens.push({ mesh: promoMesh, id: `promo_${p.id}`, videoUrl: p.video_url, playlist: [p.video_url], center: promoMesh.position.clone() });
       colliders.push({ minX: x - 0.95, maxX: x + 0.95, minZ: z - 0.55, maxZ: z + 0.55 });
       targets.push({
         id: `promo_${p.id}`, kind: 'promo', title: p.title, subtitle: p.product_name || p.subtitle || '',
@@ -528,6 +531,42 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     const room = roomForSlot(slot);
     const dept = deptBySlot[slot];
     buildRoom(room, dept, slot);
+  }
+
+  /**
+   * Department promo screen: a 16:9 wall display centred high on the back wall, facing the entrance.
+   * It hangs between the 2.5 m wall shelving and the 4.4 m ceiling, so it is clear of every fixture
+   * and is the first thing a shopper sees on walking in. Admin videos for the department play on it in order.
+   */
+  function mountDeptPromo(room: RoomGeometry, dept: StoreDepartment, backX: number, accent: string) {
+    const W = 2.8;
+    const H = W * 9 / 16;
+    // top just under the 4.4 m ceiling; the bottom (≈2.7 m) clears 2.5 m wall shelving and the demo-table screen
+    const cy = 4.3 - H / 2;
+    const clips = promos
+      .filter((p) => p.location === dept.id && p.video_url)
+      .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0));
+    const faceYaw = room.inward === 1 ? -Math.PI / 2 : Math.PI / 2;
+    const out = -room.inward; // from the back wall towards the entrance
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(0.1, H + 0.12, W + 0.12), std('#0d0e10', 0.35, 0.5));
+    frame.position.set(backX + out * 0.19, cy, room.centerZ);
+    root.add(frame);
+    // thin accent light under the bezel
+    const glow = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, W * 0.7), emissive(accent, 1));
+    glow.position.set(backX + out * 0.24, cy - H / 2 - 0.09, room.centerZ);
+    root.add(glow);
+    const lines = clips.length
+      ? clips.map((c) => c.title).filter(Boolean)
+      : [dept.description || 'New promotions arrive here soon'];
+    const board = createLedBoard({ title: dept.name, lines, accent, wide: true });
+    disposables.push(board);
+    ledAnims.push(board.update);
+    const scr = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicMaterial({ map: board.texture, toneMapped: false }));
+    scr.position.set(backX + out * 0.245, cy, room.centerZ);
+    scr.rotation.y = faceYaw;
+    root.add(scr);
+    const urls = clips.map((c) => c.video_url as string);
+    if (urls.length) videoScreens.push({ mesh: scr, id: `deptpromo_${dept.id}`, videoUrl: urls[0], playlist: urls, center: scr.position.clone() });
   }
 
   function buildRoom(room: RoomGeometry, dept: StoreDepartment | undefined, slot: number) {
@@ -643,7 +682,7 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
         m.toneMapped = false;
         m.needsUpdate = true;
         if (shelf.product_video_url && shelf.product_video_type === 'file') {
-          videoScreens.push({ mesh: res.screen, id: shelf.id, videoUrl: shelf.product_video_url, center: res.screen.position.clone() });
+          videoScreens.push({ mesh: res.screen, id: shelf.id, videoUrl: shelf.product_video_url, playlist: [shelf.product_video_url], center: res.screen.position.clone() });
         }
       }
       // invisible hit volume for click selection
@@ -694,10 +733,10 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
       const arm = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.05, 0.05), std('#2a2b2e', 0.4, 0.6));
       arm.position.set(front - room.inward * 0.6, 4.95, zS - 0.3);
       root.add(arm);
-      // hanging aisle marker inside
+      // hanging aisle marker just inside the entrance (kept clear of the back-wall promo screen's sightline)
       const aisle = aisleSignTexture(dept);
       disposables.push(aisle);
-      const ap = localToWorld(room, 8.2, 0);
+      const ap = localToWorld(room, 1.8, 0);
       const aisleMat = new THREE.MeshBasicMaterial({ map: aisle, toneMapped: false });
       // two back-to-back faces so the sign reads correctly from both directions
       [Math.atan2(-room.inward, 0), Math.atan2(room.inward, 0)].forEach((ry, k) => {
@@ -723,7 +762,8 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
       scr.position.set(ip.x - room.inward * 0.06, 1.7, ip.z);
       scr.rotation.y = Math.atan2(-room.inward, -0.6);
       root.add(scr);
-      if (dept.info_video_url) videoScreens.push({ mesh: scr, id: `info_${dept.id}`, videoUrl: dept.info_video_url, center: scr.position.clone() });
+      if (dept.info_video_url) videoScreens.push({ mesh: scr, id: `info_${dept.id}`, videoUrl: dept.info_video_url, playlist: [dept.info_video_url], center: scr.position.clone() });
+      mountDeptPromo(room, dept, backX, accent);
       colliders.push({ minX: ip.x - 0.3, maxX: ip.x + 0.3, minZ: ip.z - 0.3, maxZ: ip.z + 0.3 });
       targets.push({
         id: `info_${dept.id}`, kind: 'dept_info', title: dept.name, subtitle: dept.description || '', department: dept,

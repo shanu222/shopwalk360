@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Building2, Layers, Plus, Trash2, CheckCircle2, AlertCircle, Eye, Save, Upload, Video, Box, Ruler, Shirt, Image as ImageIcon, Megaphone, Map as MapIcon, X, ArrowUp, ArrowDown,
+  Building2, Layers, Plus, Trash2, CheckCircle2, AlertCircle, Eye, EyeOff, Save, Upload, Video, Box, Ruler, Shirt, Image as ImageIcon, Megaphone, Map as MapIcon, X, ArrowUp, ArrowDown, Play, Link as LinkIcon,
 } from 'lucide-react';
+import { mediaUrl } from '../../lib/api';
 import { StoreDepartment, StoreShelf, Product, Category, PromoScreen, LedScreen, ProductVariant, TryOnType } from '../../types';
 import { StoreMap } from '../store3d/StoreMap';
 import { SLOTS, SLOT_BY_CODE, roomForSlot, formatDeptNumber, INTERIOR_LABELS } from '../store3d/layout/storeLayout';
@@ -741,8 +742,11 @@ function PromosTab({ promos, leds, departments, products, call, reload, flash }:
       flash(false, e.message);
     }
   };
+  const lobbyPromos = promos.filter((p) => !p.location || p.location === 'lobby');
   return (
     <div className="space-y-4">
+      <DeptPromoScreens promos={promos} departments={departments} call={call} reload={reload} flash={flash} />
+      <h2 className="pt-2 text-sm font-black text-slate-900">Lobby & store screens</h2>
       <div className="flex items-center justify-between">
         <p className="text-xs text-slate-500">Store screens are large LEDs. The message scrolls. Add a video and that screen plays it instead. Without a video, the text below is what shoppers see.</p>
         <button onClick={() => setEdit({ location: 'lobby', accent_color: '#c8a96a', is_active: 1 })} className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white"><Plus className="h-4 w-4" /> Add screen</button>
@@ -759,7 +763,7 @@ function PromosTab({ promos, leds, departments, products, call, reload, flash }:
         ))}
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {promos.map((p) => (
+        {lobbyPromos.map((p) => (
           <div key={p.id} className="rounded-2xl border border-slate-200 bg-white p-4 text-xs">
             <div className="mb-1 h-1.5 w-10 rounded" style={{ backgroundColor: p.accent_color }} />
             <div className="font-bold">{p.title}</div>
@@ -780,7 +784,6 @@ function PromosTab({ promos, leds, departments, products, call, reload, flash }:
             <div><label className={label}>Location</label>
               <select className={input} value={edit.location} onChange={(e) => setEdit({ ...edit, location: e.target.value })}>
                 <option value="lobby">Reception lobby</option>
-                {departments.map((d) => <option key={d.id} value={d.id} disabled>{d.name} (coming soon)</option>)}
               </select>
             </div>
             <div><label className={label}>Product</label>
@@ -824,6 +827,140 @@ function PromosTab({ promos, leds, departments, products, call, reload, flash }:
         </Modal>
       )}
     </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------------------------- */
+/**
+ * Each department has one promo screen on its back wall. Its videos play there one after another,
+ * in the order shown; a single video loops. Hidden videos stay saved but do not play.
+ */
+function DeptPromoScreens({ promos, departments, call, reload, flash }: { promos: PromoScreen[]; departments: StoreDepartment[]; call: Call; reload: () => Promise<void>; flash: Flash }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PromoScreen | null>(null);
+  const [urlFor, setUrlFor] = useState<string | null>(null);
+  const [urlText, setUrlText] = useState('');
+  const placed = [...departments].filter((d) => d.slot_index !== undefined && d.slot_index !== null).sort((a, b) => a.aisle_number - b.aisle_number);
+  const unplaced = departments.filter((d) => d.slot_index === undefined || d.slot_index === null);
+
+  const run = async (key: string, fn: () => Promise<unknown>, ok?: string) => {
+    setBusy(key);
+    try {
+      await fn();
+      await reload();
+      if (ok) flash(true, ok);
+    } catch (e: any) {
+      flash(false, e.message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const addVideo = (dept: StoreDepartment, url: string, count: number) =>
+    run(`add_${dept.id}`, () => call('/api/admin/store3d/promos', 'POST', {
+      location: dept.id, title: `${dept.name} promo ${count + 1}`, video_url: url.trim(), accent_color: dept.theme_color || '#c8a96a', is_active: 1,
+    }), 'Video added. It plays on the department screen next time the store loads.');
+
+  const saveRow = (row: PromoScreen) => call(`/api/admin/store3d/promos/${row.id}`, 'PUT', row);
+
+  const move = (list: PromoScreen[], idx: number, dir: -1 | 1) => {
+    const j = idx + dir;
+    if (j < 0 || j >= list.length) return;
+    const order = [...list];
+    [order[idx], order[j]] = [order[j], order[idx]];
+    run(`move_${list[idx].id}`, () => Promise.all(order.map((r, k) => saveRow({ ...r, display_order: k }))));
+  };
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5">
+      <div className="mb-1 flex items-center gap-2 text-sm font-black text-slate-900"><Video className="h-4 w-4 text-blue-600" /> Department promo screens</div>
+      <p className="mb-4 text-xs text-slate-500">
+        Every department has a large promo screen high on its back wall, facing the entrance. Its videos play one after another in this order and the last one leads back to the first; a single video loops.
+        For the smoothest playback use 16:9 MP4 (H.264) at 1280×720 or 1920×1080, ideally under 30 MB. Screens play without sound.
+      </p>
+      {placed.length === 0 && <p className="text-xs text-slate-500">No department has a room yet. Give a department a room position in “Departments & entrances” first.</p>}
+      <div className="grid items-start gap-3 lg:grid-cols-2">
+        {placed.map((d) => {
+          const list = promos.filter((p) => p.location === d.id).sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0));
+          const live = list.filter((p) => p.is_active !== 0 && p.video_url).length;
+          return (
+            <div key={d.id} className="rounded-2xl border border-slate-200 p-4 text-xs">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-black text-white" style={{ backgroundColor: d.theme_color }}>{formatDeptNumber(d.aisle_number)}</span>
+                  <span className="truncate font-bold text-slate-900">{d.name}</span>
+                </div>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${live ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                  {live ? `${live} playing` : 'Shows department name'}
+                </span>
+              </div>
+              <ul className="space-y-2">
+                {list.map((p, i) => (
+                  <li key={p.id} className={`flex items-center gap-2 rounded-xl border border-slate-200 p-2 ${p.is_active === 0 ? 'opacity-50' : ''}`}>
+                    <button type="button" onClick={() => setPreview(p)} className="relative h-12 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-900" aria-label="Preview video">
+                      {p.video_url && <video src={`${mediaUrl(p.video_url)}#t=0.5`} muted playsInline preload="metadata" className="h-full w-full object-cover" />}
+                      <Play className="absolute inset-0 m-auto h-4 w-4 text-white drop-shadow" />
+                    </button>
+                    <input
+                      className="min-w-0 flex-1 rounded-lg border border-transparent px-2 py-1 font-semibold hover:border-slate-200 focus:border-blue-500 focus:outline-none"
+                      defaultValue={p.title}
+                      onBlur={(e) => {
+                        const t = e.target.value.trim();
+                        if (t && t !== p.title) run(`t_${p.id}`, () => saveRow({ ...p, title: t }));
+                      }}
+                      aria-label="Video name"
+                    />
+                    <div className="flex shrink-0 items-center">
+                      <IconBtn label="Move up" disabled={i === 0 || !!busy} onClick={() => move(list, i, -1)}><ArrowUp className="h-3.5 w-3.5" /></IconBtn>
+                      <IconBtn label="Move down" disabled={i === list.length - 1 || !!busy} onClick={() => move(list, i, 1)}><ArrowDown className="h-3.5 w-3.5" /></IconBtn>
+                      <IconBtn label={p.is_active === 0 ? 'Show on screen' : 'Hide from screen'} disabled={!!busy} onClick={() => run(`a_${p.id}`, () => saveRow({ ...p, is_active: p.is_active === 0 ? 1 : 0 }))}>
+                        {p.is_active === 0 ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      </IconBtn>
+                      <IconBtn label="Delete video" danger disabled={!!busy} onClick={() => {
+                        if (confirm(`Delete “${p.title}” from the ${d.name} screen?`)) run(`d_${p.id}`, () => call(`/api/admin/store3d/promos/${p.id}`, 'DELETE'), 'Video deleted.');
+                      }}><Trash2 className="h-3.5 w-3.5" /></IconBtn>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              {list.length === 0 && <p className="mb-2 text-slate-500">No videos yet. The screen shows the department name and description.</p>}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <UploadButton kind="video" accept="video/mp4,video/webm" text={busy === `add_${d.id}` ? 'Saving…' : 'Upload video'} onUploaded={(url) => addVideo(d, url, list.length)} />
+                <button type="button" onClick={() => { setUrlFor(urlFor === d.id ? null : d.id); setUrlText(''); }} className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100">
+                  <LinkIcon className="h-3.5 w-3.5" /> Add by link
+                </button>
+              </div>
+              {urlFor === d.id && (
+                <div className="mt-2 flex gap-2">
+                  <input className={input} value={urlText} onChange={(e) => setUrlText(e.target.value)} placeholder="https://…/video.mp4 (MP4 or WebM, not YouTube)" />
+                  <button
+                    type="button"
+                    disabled={!/^https?:\/\/.+\.(mp4|m4v|webm)(\?.*)?$/i.test(urlText.trim()) && !urlText.trim().startsWith('/uploads/')}
+                    onClick={() => { addVideo(d, urlText, list.length); setUrlFor(null); }}
+                    className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-40"
+                  >Add</button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {unplaced.length > 0 && <p className="mt-3 text-[11px] text-slate-500">Not in the store yet (no room position): {unplaced.map((d) => d.name).join(', ')}.</p>}
+      {preview && (
+        <Modal title={preview.title} onClose={() => setPreview(null)}>
+          <video src={mediaUrl(preview.video_url)} controls autoPlay muted playsInline className="aspect-video w-full rounded-xl bg-black object-contain" />
+        </Modal>
+      )}
+    </section>
+  );
+}
+
+function IconBtn({ label, onClick, disabled, danger, children }: { label: string; onClick: () => void; disabled?: boolean; danger?: boolean; children: React.ReactNode }) {
+  return (
+    <button type="button" title={label} aria-label={label} disabled={disabled} onClick={onClick}
+      className={`rounded-lg p-1.5 disabled:opacity-30 ${danger ? 'text-rose-600 hover:bg-rose-50' : 'text-slate-600 hover:bg-slate-100'}`}>
+      {children}
+    </button>
   );
 }
 

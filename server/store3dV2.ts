@@ -567,6 +567,7 @@ store3dRouter.put('/admin/store3d/departments/:id', requireAdmin, (req, res) => 
 });
 
 store3dRouter.delete('/admin/store3d/departments/:id', requireAdmin, (req, res) => {
+  db.prepare('DELETE FROM store_promo_screens WHERE location = ?').run(req.params.id);
   db.prepare('DELETE FROM store_departments WHERE id = ?').run(req.params.id);
   res.json({ success: true });
 });
@@ -616,18 +617,36 @@ store3dRouter.delete('/admin/store3d/fixtures/:id', requireAdmin, (req, res) => 
 store3dRouter.get('/admin/store3d/promos', requireAdmin, (_req, res) => {
   res.json({ promos: db.prepare('SELECT * FROM store_promo_screens ORDER BY display_order').all() });
 });
+// A promo lives in the lobby (freestanding totem) or in a department (its back-wall promo screen).
+// Several rows for one department make a playlist, played in display_order.
+function promoLocation(raw: unknown): string | null {
+  const loc = String(raw || 'lobby');
+  if (loc === 'lobby') return loc;
+  return db.prepare('SELECT id FROM store_departments WHERE id = ?').get(loc) ? loc : null;
+}
 store3dRouter.post('/admin/store3d/promos', requireAdmin, (req, res) => {
   const b = req.body || {};
-  if (!b.title) return res.status(400).json({ error: 'Title is required.' });
-  const id = `promo_${Date.now()}`;
+  const location = promoLocation(b.location);
+  if (!location) return res.status(400).json({ error: 'That department does not exist.' });
+  if (!b.title && !b.video_url) return res.status(400).json({ error: 'Title is required.' });
+  if (location !== 'lobby' && !b.video_url) return res.status(400).json({ error: 'Upload a video for the department screen.' });
+  const id = `promo_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+  let order = b.display_order;
+  if (order === undefined || order === null || order === '') {
+    const row = db.prepare('SELECT COALESCE(MAX(display_order), -1) + 1 AS n FROM store_promo_screens WHERE location = ?').get(location) as { n: number };
+    order = row.n;
+  }
   db.prepare('INSERT INTO store_promo_screens (id, location, title, subtitle, product_id, accent_color, display_order, is_active, video_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, b.location || 'lobby', b.title, b.subtitle || null, b.product_id || null, b.accent_color || '#c8a96a', Number(b.display_order || 0), b.is_active === false ? 0 : 1, b.video_url || null);
+    .run(id, location, String(b.title || 'Promotion').slice(0, 80), b.subtitle || null, b.product_id || null, b.accent_color || '#c8a96a', Number(order) || 0, b.is_active === false || b.is_active === 0 ? 0 : 1, b.video_url || null);
   res.json({ success: true, id });
 });
 store3dRouter.put('/admin/store3d/promos/:id', requireAdmin, (req, res) => {
   const b = req.body || {};
+  const location = promoLocation(b.location);
+  if (!location) return res.status(400).json({ error: 'That department does not exist.' });
+  if (!b.title) return res.status(400).json({ error: 'Title is required.' });
   db.prepare('UPDATE store_promo_screens SET location = ?, title = ?, subtitle = ?, product_id = ?, accent_color = ?, display_order = ?, is_active = ?, video_url = ? WHERE id = ?')
-    .run(b.location || 'lobby', b.title, b.subtitle || null, b.product_id || null, b.accent_color || '#c8a96a', Number(b.display_order || 0), b.is_active === false ? 0 : 1, b.video_url || null, req.params.id);
+    .run(location, String(b.title).slice(0, 80), b.subtitle || null, b.product_id || null, b.accent_color || '#c8a96a', Number(b.display_order || 0), b.is_active === false || b.is_active === 0 ? 0 : 1, b.video_url || null, req.params.id);
   res.json({ success: true });
 });
 store3dRouter.delete('/admin/store3d/promos/:id', requireAdmin, (req, res) => {
