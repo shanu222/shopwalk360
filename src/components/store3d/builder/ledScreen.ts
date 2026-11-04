@@ -13,19 +13,24 @@ export interface LedBoard {
  * The canvas is modest on purpose: the mesh is large, and a full-size canvas
  * uploaded every frame was freezing the page.
  */
-export function createLedBoard(opts: { title: string; lines: string[]; accent?: string; wide?: boolean }): LedBoard {
+export function createLedBoard(opts: { title: string; lines: string[]; accent?: string; wide?: boolean; scale?: number }): LedBoard {
   const wide = opts.wide !== false;
   const w = wide ? 640 : 384;
   const h = wide ? 360 : 640;
   const accent = opts.accent || '#c8a96a';
+  // `scale` draws the same layout at higher resolution (for very large screens)
+  const k = Math.max(1, Math.min(2, opts.scale || 1));
   const base = document.createElement('canvas');
-  base.width = w;
-  base.height = h;
-  paintBase(base.getContext('2d')!, w, h, accent);
+  base.width = Math.round(w * k);
+  base.height = Math.round(h * k);
+  const bctx = base.getContext('2d')!;
+  bctx.setTransform(k, 0, 0, k, 0, 0);
+  paintBase(bctx, w, h, accent);
   const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = Math.round(w * k);
+  canvas.height = Math.round(h * k);
   const ctx = canvas.getContext('2d')!;
+  ctx.setTransform(k, 0, 0, k, 0, 0);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.generateMipmaps = false;
@@ -44,7 +49,7 @@ export function createLedBoard(opts: { title: string; lines: string[]; accent?: 
   const speed = wide ? 70 : 55;
 
   const draw = (t: number) => {
-    ctx.drawImage(base, 0, 0);
+    ctx.drawImage(base, 0, 0, w, h);
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';

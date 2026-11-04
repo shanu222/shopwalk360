@@ -10,6 +10,10 @@ import {
 } from './signage';
 import { createLedBoard } from './ledScreen';
 import { buildPromoWall } from './promoWall';
+import {
+  cabochonMarbleTexture, harlequinMarbleTexture, porcelainTileTexture, addPalm, addFiddleFig, addTree,
+  addPainting, paintingsFor, letteringTexture, addLettering, quoteFor,
+} from './decor';
 import { buildFixture, FixturePalette } from './fixtures';
 import { STORE, Rect, roomForSlot, placeFixture, RoomGeometry, localToWorld, formatDeptNumber } from '../layout/storeLayout';
 import { StoreDepartment, StoreShelf, PromoScreen, InteriorStyle, LedScreen } from '../../../types';
@@ -66,9 +70,12 @@ interface StyleDef {
 
 const LIGHT_HEX = { warm: '#ffe4c4', neutral: '#fff4e6', cool: '#eef5ff' };
 
+/** Avatar Studio billboard on the plaza: 16:9 so videos fit it exactly. */
+const BILLBOARD = { x: 9.2, z: 40.4, yaw: -0.45, w: 6.4, h: 3.6, y: 3.35 };
+
 const STYLES: Record<InteriorStyle, StyleDef> = {
   tech: {
-    floor: () => std('#2a2c30', 0.32, 0.1, { map: concreteTexture('#3a3d42', 31) }), floorTile: 4,
+    floor: () => std('#ffffff', 0.3, 0.08, { map: porcelainTileTexture('#36393f', { vein: '#4c5058', cols: 2, rows: 4, stagger: true, grout: 'rgba(0,0,0,0.5)', seed: 3 }) }), floorTile: 2.4,
     wall: '#e9eaec', backWall: () => std('#1d1f23', 0.6, 0.1, { map: flutedTexture('#25282d', 22) }), ceiling: '#f2f2f2',
     palette: { body: '#202226', shelf: '#f3f3f1', metal: '#9aa0a6', bodyRough: 0.35 },
   },
@@ -88,17 +95,17 @@ const STYLES: Record<InteriorStyle, StyleDef> = {
     palette: { body: '#3b2a20', shelf: '#efe7da', metal: '#c8a96a' },
   },
   concrete: {
-    floor: () => std('#ffffff', 0.38, 0.05, { map: concreteTexture('#9c9a95', 8) }), floorTile: 5,
+    floor: () => std('#ffffff', 0.34, 0.04, { map: porcelainTileTexture('#a8a59f', { vein: '#8d8a84', cols: 2, rows: 2, grout: 'rgba(60,55,50,0.32)', seed: 8 }) }), floorTile: 2.4,
     wall: '#e7e5e1', backWall: () => std('#ffffff', 0.9, 0, { map: concreteTexture('#bdbab3', 17) }), ceiling: '#eeede9',
     palette: { body: '#1f2023', shelf: '#d9d6cf', metal: '#5b5e63' },
   },
   luxury: {
-    floor: () => std('#ffffff', 0.2, 0.05, { map: marbleTexture('#24262b', '#8a7a5c', 2, 21) }), floorTile: 2.6,
+    floor: () => std('#ffffff', 0.18, 0.06, { map: porcelainTileTexture('#24262b', { vein: '#8a7a5c', cols: 2, rows: 2, grout: 'rgba(0,0,0,0.5)', inlay: '#b48e57', seed: 21 }) }), floorTile: 2.4,
     wall: '#1f2a44', backWall: () => std('#ffffff', 0.55, 0, { map: woodTexture(['#3a2418', '#2d1a10'], { planks: 10, seed: 9 }) }), ceiling: '#191b20',
     palette: { body: '#2a1d16', shelf: '#e9e1d2', metal: '#c8a96a', bodyRough: 0.35 },
   },
   spa: {
-    floor: () => std('#ffffff', 0.32, 0, { map: terrazzoTexture('#efe9e4', ['#d8b3ac', '#bfb8b0', '#a5928b', '#ffffff'], 41) }), floorTile: 2,
+    floor: () => std('#ffffff', 0.3, 0, { map: porcelainTileTexture('#efe9e4', { chips: ['#d8b3ac', '#bfb8b0', '#a5928b', '#ffffff'], cols: 2, rows: 2, grout: 'rgba(120,100,90,0.28)', seed: 41 }) }), floorTile: 1.8,
     wall: '#f6efec', backWall: () => std('#e9cfc8', 0.85, 0), ceiling: '#fbf7f5',
     palette: { body: '#f4ece8', shelf: '#ffffff', metal: '#c99b86' },
   },
@@ -108,12 +115,12 @@ const STYLES: Record<InteriorStyle, StyleDef> = {
     palette: { body: '#141518', shelf: '#2a2c30', metal: '#cfa53a' },
   },
   garage: {
-    floor: () => std('#ffffff', 0.25, 0.1, { map: concreteTexture('#6c6f74', 44) }), floorTile: 6,
+    floor: () => std('#ffffff', 0.24, 0.1, { map: porcelainTileTexture('#2f3136', { vein: '#45484e', cols: 2, rows: 2, grout: 'rgba(0,0,0,0.55)', seed: 44 }) }), floorTile: 2,
     wall: '#e6e7e9', backWall: () => std('#2a2c31', 0.6, 0.2), ceiling: '#eff0f2',
     palette: { body: '#18191c', shelf: '#e9e9ea', metal: '#b91c1c' },
   },
   travel: {
-    floor: () => std('#ffffff', 0.35, 0, { map: terrazzoTexture('#e9ecec', ['#7aa6a1', '#c3c9c9', '#3d6f6a', '#ffffff'], 52) }), floorTile: 2,
+    floor: () => std('#ffffff', 0.33, 0, { map: porcelainTileTexture('#e9ecec', { chips: ['#7aa6a1', '#c3c9c9', '#3d6f6a', '#ffffff'], cols: 2, rows: 2, grout: 'rgba(60,90,88,0.28)', seed: 52 }) }), floorTile: 1.8,
     wall: '#eef1f1', backWall: () => std('#cfe0dd', 0.85, 0), ceiling: '#f6f8f8',
     palette: { body: '#e8e1d5', shelf: '#ffffff', metal: '#0f766e' },
   },
@@ -152,11 +159,11 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
   const ledById = new Map((opts.leds || []).map((l) => [l.id, l]));
   const hitGroup = new THREE.Group();
 
-  const mountLed = (key: string, fallbackTitle: string, fallbackLines: string[], w: number, h: number, x: number, y: number, z: number, ry = 0, accent?: string) => {
+  const mountLed = (key: string, fallbackTitle: string, fallbackLines: string[], w: number, h: number, x: number, y: number, z: number, ry = 0, accent?: string, scale = 1) => {
     const row = ledById.get(key);
     const title = row?.title || fallbackTitle;
     const lines = row?.body?.trim() ? row.body.split('\n').map((s) => s.trim()).filter(Boolean) : fallbackLines;
-    const board = createLedBoard({ title, lines, accent: row?.accent_color || accent || '#c8a96a', wide: w >= h });
+    const board = createLedBoard({ title, lines, accent: row?.accent_color || accent || '#c8a96a', wide: w >= h, scale });
     disposables.push(board);
     ledAnims.push(board.update);
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: board.texture, toneMapped: false }));
@@ -219,14 +226,7 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     [-14, -8, 8, 14].forEach((x) => {
       ext.box(std('#d9d4ca', 0.8), 2.2, 0.55, 2.2, x, 0.275, 46, 0, 1);
       ext.box(std('#3d2f25', 0.95), 2, 0.05, 2, x, 0.56, 46);
-      const trunk = new THREE.CylinderGeometry(0.09, 0.12, 2.6, 8);
-      ext.add(trunk, std('#5b4636', 0.9), x, 1.85, 46);
-      trunk.dispose();
-      [[0, 3.6, 0, 1.25], [0.5, 3.2, 0.3, 0.9], [-0.45, 3.3, -0.25, 0.95], [0.1, 4.2, 0.1, 0.8]].forEach(([dx, y, dz, r]) => {
-        const f = new THREE.IcosahedronGeometry(r, 1);
-        ext.add(f, std('#46603a', 0.9), x + dx, y, 46 + dz);
-        f.dispose();
-      });
+      addTree(ext, x, 46, Math.round(x + 20));
     });
     // façade: stone base wall either side of a tall glass curtain wall
     const stone = std('#ffffff', 0.7, 0, { map: plasterTexture('#d8d2c6', 71) });
@@ -256,9 +256,18 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     wallC(22, 24, STORE.facadeZ, 53);
     wallC(-24, 24, 52, 53);
     [-14, -8, 8, 14].forEach((x) => wallC(x - 1.2, x + 1.2, 44.8, 47.2));
-    // avatar studio LED totem on the plaza
-    ext.box(std('#141518', 0.4, 0.5), 1.55, 2.55, 0.22, 6.5, 1.28, 40.2, -0.5);
-    wallC(5.7, 7.3, 39.6, 40.8);
+    // Avatar Studio digital billboard on the plaza: a large 16:9 screen, so videos fit it exactly
+    {
+      const B = BILLBOARD;
+      const dark = std('#141518', 0.35, 0.5);
+      const sx = Math.sin(B.yaw);
+      const cz = Math.cos(B.yaw);
+      ext.box(dark, B.w + 0.3, B.h + 0.3, 0.3, B.x, B.y, B.z, B.yaw);
+      ext.box(dark, 0.55, B.y - B.h / 2, 0.45, B.x, (B.y - B.h / 2) / 2, B.z, B.yaw);
+      ext.box(std('#2a2b2e', 0.5, 0.3), 2.4, 0.3, 1.4, B.x, 0.15, B.z, B.yaw);
+      ext.box(emissive('#c8a96a', 1), B.w + 0.3, 0.04, 0.05, B.x + sx * 0.16, B.y - B.h / 2 - 0.13, B.z + cz * 0.16, B.yaw);
+      wallC(B.x - 1.4, B.x + 1.4, B.z - 0.9, B.z + 0.9);
+    }
   }
   root.add(ext.build('exterior'));
   // big façade lettering — raised letters, kept separate so they can animate
@@ -271,7 +280,12 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     facadeAnim = (t) => sign.update(t);
     // brand emblems on the stone piers either side of the entrance
     [-19, 19].forEach((x) => root.add(logoDisc(2.3, x, 5.6, STORE.facadeZ + 0.33, 0)));
-    mountLed('avatar', 'Avatar Studio', ['Create your virtual self', 'Step inside — your shopping journey begins here'], 1.4, 2.3, 6.5 + Math.sin(-0.5) * 0.16, 1.4, 40.2 + Math.cos(-0.5) * 0.16, -0.5);
+    {
+      const B = BILLBOARD;
+      mountLed('avatar', 'Avatar Studio', ['Create your virtual self', 'Step inside — your shopping journey begins here'], B.w, B.h, B.x + Math.sin(B.yaw) * 0.16, B.y, B.z + Math.cos(B.yaw) * 0.16, B.yaw, undefined, 2);
+      // brand emblem on the back of the billboard
+      root.add(logoDisc(1.3, B.x - Math.sin(B.yaw) * 0.17, B.y, B.z - Math.cos(B.yaw) * 0.17, B.yaw + Math.PI));
+    }
   }
   // automatic sliding doors
   const doorLeaf = (sign: number) => {
@@ -303,8 +317,8 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
   const lob = new StaticBatcher();
   {
     const L = STORE.lobby;
-    const floorM = std('#ffffff', 0.18, 0.05, { map: marbleTexture('#ece7de', '#b9ad98', 2, 4) });
-    lob.floor(floorM, L.minX, L.maxX, L.minZ, L.maxZ, 0, 2.4);
+    const floorM = std('#ffffff', 0.16, 0.05, { map: cabochonMarbleTexture() });
+    lob.floor(floorM, L.minX, L.maxX, L.minZ, L.maxZ, 0, 2.0);
     // inlay medallion
     const ring = new THREE.RingGeometry(3.4, 3.6, 72);
     lob.add(ring, std('#b48e57', 0.3, 0.8), 0, 0.004, 27.5, 0, -Math.PI / 2);
@@ -373,16 +387,17 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
       wallC(x - 1.4, x + 1.4, z - 0.5, z + 0.5);
     });
     [[-21.5, 14.5], [21.5, 14.5], [-21.5, 32], [21.5, 32]].forEach(([x, z]) => {
-      const pot = new THREE.CylinderGeometry(0.55, 0.42, 0.9, 24);
-      lob.add(pot, std('#d9d4ca', 0.7), x, 0.45, z);
-      pot.dispose();
-      [[0, 1.4, 0, 0.7, '#3f6b3a'], [0.3, 1.95, 0.1, 0.5, '#4c7a43'], [-0.25, 1.8, -0.15, 0.55, '#45733f']].forEach(([dx, y, dz, r, c]) => {
-        const f = new THREE.IcosahedronGeometry(r as number, 3);
-        lob.add(f, std(c as string, 0.85), x + (dx as number), y as number, z + (dz as number));
-        f.dispose();
-      });
+      addFiddleFig(lob, x, z, Math.round(x * 3 + z), '#2b2c30');
       wallC(x - 0.7, x + 0.7, z - 0.7, z + 0.7);
     });
+    // wall lettering high on the oak walls of the lobby
+    {
+      const mid = (L.minZ + L.maxZ) / 2;
+      const a = letteringTexture('Explore. Experience. Discover.', 'Welcome to ShopWalk 360', '#fbf3e3', '#e2c88f', 2048, 360);
+      disposables.push(addLettering(root, a, L.minX + 0.17, 7.1, mid, Math.PI / 2, 15, 2.64));
+      const bTex = letteringTexture('Step inside, shop your way', 'Pakistan’s virtual shopping galleria', '#fbf3e3', '#e2c88f', 2048, 360);
+      disposables.push(addLettering(root, bTex, L.maxX - 0.17, 7.1, mid, -Math.PI / 2, 15, 2.64));
+    }
     // pendant ring over the medallion
     const ringL = new THREE.TorusGeometry(2.6, 0.05, 8, 96);
     lob.add(ringL, emissive('#fff0d8', 1.3), 0, 6.2, 27.5, Math.PI / 2);
@@ -426,6 +441,7 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     dirRightBack.position.set(5.2, 1.4, 13.24);
     dirRightBack.rotation.y = Math.PI;
     root.add(dirRightBack);
+    dir.userData.mirrors = [dirBack, dirRight, dirRightBack];
     const mapLed = mountLed('map', 'Store Map', ['Open the interactive map', 'Search any product and we will guide you'], 1.7, 0.96, STORE.mapKiosk.x, 1.28, STORE.mapKiosk.z + 0.12);
     mapLed.rotation.x = -0.55;
     mountLed('checkout', 'Checkout', ['Pay at the counter', 'Cash on delivery · Bank transfer · Card'], 3.2, 1.35, 16.35, 3.15, 22, -Math.PI / 2);
@@ -434,24 +450,33 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     const promoSpots: [number, number, number][] = [[-10.5, 16.2, 0.35], [10.5, 15.6, -0.35], [-8.6, 31, 0.6]];
     promos.filter((p) => p.location === 'lobby').slice(0, 3).forEach((p, i) => {
       const [x, z, ry] = promoSpots[i];
-      const body = new THREE.Mesh(new THREE.BoxGeometry(1.55, 2.55, 0.18), std('#141518', 0.4, 0.4));
-      body.position.set(x, 1.28, z);
+      // landscape 16:9 screen on a slim column, so promo videos fit it exactly
+      const body = new THREE.Mesh(new THREE.BoxGeometry(2.72, 1.6, 0.16), std('#141518', 0.4, 0.4));
+      body.position.set(x, 1.95, z);
       body.rotation.y = ry;
       root.add(body);
+      const column = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.15, 0.24), std('#141518', 0.4, 0.4));
+      column.position.set(x, 0.575, z);
+      column.rotation.y = ry;
+      root.add(column);
+      const plinth = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.06, 0.7), std('#2a2b2e', 0.5, 0.3));
+      plinth.position.set(x, 0.03, z);
+      plinth.rotation.y = ry;
+      root.add(plinth);
       const price = p.discount_price || p.regular_price;
       const lines = [p.subtitle || '', p.product_name || '', price ? `PKR ${Number(price).toLocaleString()}` : ''].filter(Boolean);
-      const board = createLedBoard({ title: p.title, lines, accent: p.accent_color, wide: false });
+      const board = createLedBoard({ title: p.title, lines, accent: p.accent_color, wide: true });
       disposables.push(board);
       ledAnims.push(board.update);
-      const promoMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 2.3), new THREE.MeshBasicMaterial({ map: board.texture, toneMapped: false }));
-      promoMesh.position.set(x + Math.sin(ry) * 0.1, 1.4, z + Math.cos(ry) * 0.1);
+      const promoMesh = new THREE.Mesh(new THREE.PlaneGeometry(2.56, 1.44), new THREE.MeshBasicMaterial({ map: board.texture, toneMapped: false }));
+      promoMesh.position.set(x + Math.sin(ry) * 0.085, 1.95, z + Math.cos(ry) * 0.085);
       promoMesh.rotation.y = ry;
       root.add(promoMesh);
       if (p.video_url) videoScreens.push({ mesh: promoMesh, id: `promo_${p.id}`, videoUrl: p.video_url, playlist: [p.video_url], center: promoMesh.position.clone() });
-      colliders.push({ minX: x - 0.95, maxX: x + 0.95, minZ: z - 0.55, maxZ: z + 0.55 });
+      colliders.push({ minX: x - 0.7, maxX: x + 0.7, minZ: z - 0.5, maxZ: z + 0.5 });
       targets.push({
         id: `promo_${p.id}`, kind: 'promo', title: p.title, subtitle: p.product_name || p.subtitle || '',
-        position: new THREE.Vector3(x, 1.4, z), stand: { x: x + Math.sin(ry) * 1.5, z: z + Math.cos(ry) * 1.5 }, promo: p,
+        position: new THREE.Vector3(x, 1.9, z), stand: { x: x + Math.sin(ry) * 1.5, z: z + Math.cos(ry) * 1.5 }, promo: p,
       });
     });
   }
@@ -467,7 +492,15 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
   const prom = new StaticBatcher();
   {
     const P = STORE.promenade;
-    prom.floor(std('#ffffff', 0.28, 0.02, { map: terrazzoTexture('#e6e1d8', ['#b8a98f', '#8f8a82', '#d9d0c0', '#ffffff', '#6f6a63'], 77) }), P.minX, P.maxX, P.minZ, P.maxZ, 0, 2.2);
+    prom.floor(std('#ffffff', 0.2, 0.04, { map: harlequinMarbleTexture() }), P.minX, P.maxX, P.minZ, P.maxZ, 0, 2.4);
+    // dark stone border bands with a brass edge along both shopfronts
+    const band = std('#ffffff', 0.22, 0.05, { map: porcelainTileTexture('#26272b', { vein: '#6f6656', cols: 1, rows: 2, grout: 'rgba(0,0,0,0.6)', seed: 9 }) });
+    [-1, 1].forEach((sd) => {
+      const inner = sd * 6.9;
+      const outer = sd * 7.6;
+      prom.floor(band, Math.min(inner, outer), Math.max(inner, outer), P.minZ, P.maxZ, 0.002, 1.2);
+      prom.box(std('#b48e57', 0.3, 0.8), 0.05, 0.004, P.maxZ - P.minZ, inner, 0.003, (P.minZ + P.maxZ) / 2);
+    });
     // brass floor inlay lines leading to each shop door
     for (let i = 0; i < STORE.roomsPerSide; i++) {
       const z = STORE.lobby.minZ - i * STORE.roomFrontage - STORE.roomFrontage / 2;
@@ -487,17 +520,8 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
       prom.box(std('#e9e3d8', 0.85), 0.8, 0.45, 3.2, 0, 0.225, z);
       prom.box(std('#3b2a20', 0.5), 0.8, 0.06, 3.2, 0, 0.47, z);
       wallC(-0.5, 0.5, z - 1.7, z + 1.7);
-      [-2.6, 2.6].forEach((dz) => {
-        const pot = new THREE.CylinderGeometry(0.5, 0.4, 0.8, 24);
-        prom.add(pot, std('#d9d4ca', 0.7), 0, 0.4, z + dz);
-        pot.dispose();
-        // clipped topiary: stacked spheres on a brass collar
-        prom.add(new THREE.CylinderGeometry(0.52, 0.52, 0.05, 32), std('#b48e57', 0.3, 0.9), 0, 0.82, z + dz);
-        [[0, 1.3, 0.56, '#3f6b3a'], [0, 1.95, 0.4, '#4c7a43'], [0, 2.42, 0.26, '#5a8a4c']].forEach(([dx, y, r, c]) => {
-          const f = new THREE.IcosahedronGeometry(r as number, 3);
-          prom.add(f, std(c as string, 0.85), dx as number, y as number, z + dz);
-          f.dispose();
-        });
+      [-2.6, 2.6].forEach((dz, k) => {
+        addPalm(prom, 0, z + dz, Math.round(-z) + k, '#ece8e1');
         wallC(-0.6, 0.6, z + dz - 0.6, z + dz + 0.6);
       });
     });
@@ -712,6 +736,26 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
       b.box(std('#d6d2ca', 0.9), 0.1, 4, room.door.halfWidth * 2, front, 2, cz);
       wallC(front - 0.2, front + 0.2, cz - room.door.halfWidth, cz + room.door.halfWidth);
     }
+    // ---------- art: framed paintings on one side wall, a lettered quote on the other ----------
+    if (dept) {
+      const art = paintingsFor(dept.interior_style, 3);
+      const darkWall = new THREE.Color(style.wall).getHSL({ h: 0, s: 0, l: 0 }).l < 0.4;
+      const frame = darkWall || dept.interior_style === 'luxury' ? 'gold' : ['warm_wood', 'study', 'kitchen', 'travel'].includes(dept.interior_style || '') ? 'oak' : 'black';
+      // above the wall shelving (2.5 m) and below the 4.4 m ceiling, lined up with the bays
+      [3.6, 7.0, 10.4].forEach((u, i) => {
+        const p = localToWorld(room, u, 0);
+        addPainting(b, {
+          x: p.x, y: 3.32, z: zN + 0.16, yaw: 0, w: 1.5, h: 0.95,
+          style: art[i].style, title: art[i].title, accent, seed: slot * 17 + i * 5 + 3, frame, lowDetail: low,
+        });
+      });
+      // deep gold reads on both dark and light walls (neighbouring rooms share their partition walls)
+      const ink = darkWall ? '#a8843f' : '#2b2724';
+      const quote = letteringTexture(quoteFor(dept.name, dept.description), `${dept.name} · Aisle ${formatDeptNumber(dept.aisle_number)}`, ink, accent);
+      const lp = localToWorld(room, 8.7, 0);
+      disposables.push(addLettering(root, quote, lp.x, 3.3, zS - 0.18, Math.PI, 6.4, 1.31));
+    }
+
     root.add(b.build(`dept_${slot}`));
 
     // ---------- signage (unique textures) ----------

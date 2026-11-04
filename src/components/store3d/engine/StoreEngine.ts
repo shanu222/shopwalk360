@@ -1484,11 +1484,22 @@ class ScreenPlayer {
     const m = this.screen.mesh.material as THREE.MeshBasicMaterial;
     m.map = this.ledMap;
     m.needsUpdate = true;
+    // undo any resize made to show a whole clip
+    [this.screen.mesh, ...((this.screen.mesh.userData.mirrors as THREE.Mesh[]) || [])].forEach((mm) => {
+      const base = mm.userData.baseScale as THREE.Vector3 | undefined;
+      if (base) mm.scale.copy(base);
+    });
     new Set([this.cur, this.next, this.shown]).forEach((c) => c && this.drop(c));
     this.cur = this.next = this.shown = null;
   }
 }
 
+/**
+ * Fit a video to its screen. When the shapes are close (a 16:9 clip on a 16:9 or slightly wider
+ * screen) the clip fills the screen, trimming a little off the edges. When they are very different
+ * (a wide clip on a tall directory screen) cropping would leave only a sliver, so the whole clip is
+ * shown at full width or height, centred, by resizing the screen surface to the clip's shape.
+ */
 function fitVideoCover(texture: THREE.VideoTexture, video: HTMLVideoElement, mesh: THREE.Mesh) {
   const geo = mesh.geometry as THREE.PlaneGeometry;
   const pw = geo.parameters?.width || 16;
@@ -1497,6 +1508,24 @@ function fitVideoCover(texture: THREE.VideoTexture, video: HTMLVideoElement, mes
   const vh = video.videoHeight || 9;
   const imageAspect = vw / Math.max(1, vh);
   const planeAspect = pw / Math.max(0.001, ph);
+  // copies of a screen (e.g. the directory faces) share its material, so they get the same fit
+  const meshes: THREE.Mesh[] = [mesh, ...((mesh.userData.mirrors as THREE.Mesh[]) || [])];
+  meshes.forEach((m) => {
+    if (!m.userData.baseScale) m.userData.baseScale = m.scale.clone();
+  });
+  const fitScale = (sx: number, sy: number) => meshes.forEach((m) => {
+    const b = m.userData.baseScale as THREE.Vector3;
+    m.scale.set(b.x * sx, b.y * sy, b.z);
+  });
+  const mismatch = Math.max(imageAspect / planeAspect, planeAspect / imageAspect);
+  if (mismatch > 1.45) {
+    texture.repeat.set(1, 1);
+    texture.offset.set(0, 0);
+    if (imageAspect > planeAspect) fitScale(1, planeAspect / imageAspect);
+    else fitScale(imageAspect / planeAspect, 1);
+    return;
+  }
+  fitScale(1, 1);
   if (imageAspect > planeAspect) {
     const repeat = planeAspect / imageAspect;
     texture.repeat.set(repeat, 1);
