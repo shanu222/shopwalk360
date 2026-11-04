@@ -161,10 +161,44 @@ class Mesh:
         self.idx += [a, b, c]
 
 
-def build_round(m: np.ndarray, height_m: float, segments: int = 56) -> Mesh:
+def back_texture(rgb: np.ndarray, m: np.ndarray) -> np.ndarray:
+    """The back of a round product: each band in its own colour (body, label, cap) with the
+    printing removed, keeping the photo's left-to-right shading so the sides blend in."""
+    h, w = m.shape
+    f = rgb.astype(np.float32)
+    lum = f.mean(axis=2) + 1
+    row_col = np.zeros((h, 3), np.float32)
+    row_lum = np.ones(h, np.float32)
+    for y in range(h):
+        xs = np.nonzero(m[y])[0]
+        if len(xs) < 3:
+            continue
+        a, b = xs[0], xs[-1]
+        mid = slice(a + (b - a) * 3 // 10, b - (b - a) * 3 // 10 + 1)  # middle 40%: the label's colour, not its text
+        row_col[y] = np.median(f[y, mid], axis=0)
+        row_lum[y] = np.median(lum[y, mid])
+    # fill rows outside the product with their neighbours
+    filled = np.nonzero(row_lum > 1)[0]
+    if len(filled):
+        for c in range(3):
+            row_col[:, c] = np.interp(np.arange(h), filled, row_col[filled, c])
+    shade = np.ones(w, np.float32)
+    rel = lum / row_lum[:, None]
+    for x in range(w):
+        col = rel[m[:, x], x]
+        if len(col):
+            shade[x] = np.median(col)
+    shade = ndimage.uniform_filter1d(np.clip(shade, 0.2, 1.6), 9)
+    back = row_col[:, None, :] * shade[None, :, None]
+    # a gentle vertical blur hides the edges of letters that crossed band boundaries
+    back = ndimage.uniform_filter1d(back, 7, axis=0)
+    return np.clip(back, 0, 255).astype(np.uint8)
+
+
+def build_round(m: np.ndarray, rgb: np.ndarray, height_m: float, segments: int = 56):
+    """Spun body. Returns the mesh and its texture: the photo (front half) beside a plain back."""
     h, w = m.shape
     s = height_m / h
-    cols = np.nonzero(m.any(axis=0))[0]
     rows_idx = [i for i in range(h) if m[i].any()]
     centre = float(np.median([(np.nonzero(m[i])[0][0] + np.nonzero(m[i])[0][-1]) / 2 for i in rows_idx]))
     rings = np.linspace(rows_idx[0], rows_idx[-1], min(96, len(rows_idx)))
@@ -176,31 +210,35 @@ def build_round(m: np.ndarray, height_m: float, segments: int = 56) -> Mesh:
         prof.append((y, max(half, 0.5)))
     prof = np.array(prof)
     prof[:, 1] = ndimage.uniform_filter1d(prof[:, 1], 3)  # smooth the silhouette a little
+    atlas = np.concatenate([rgb, back_texture(rgb, m)], axis=1)  # [photo | back]
     mesh = Mesh()
-    grid = []
-    for y, r in prof:
-        ring = []
-        for k in range(segments + 1):
-            th = (k / segments) * 2 * np.pi - np.pi  # θ = 0 faces +Z (the photo)
-            x = r * np.sin(th)
-            z = r * np.cos(th)
-            u = (centre + x) / w
-            ring.append(mesh.v(((x) * s, (h - y) * s, z * s), (u, y / h)))
-        grid.append(ring)
-    for i in range(len(grid) - 1):
-        for k in range(segments):
-            a, b, c, d = grid[i][k], grid[i][k + 1], grid[i + 1][k], grid[i + 1][k + 1]
-            mesh.tri(a, c, b)
-            mesh.tri(b, c, d)
-    # caps
-    for ring, (y, r), up in ((grid[0], prof[0], True), (grid[-1], prof[-1], False)):
-        c = mesh.v((0, (h - y) * s, 0), (centre / w, y / h))
-        for k in range(segments):
-            if up:
-                mesh.tri(c, ring[k + 1], ring[k])
-            else:
-                mesh.tri(c, ring[k], ring[k + 1])
-    return mesh
+    q = segments // 2
+    # two half-shells: front (θ −90°…90°, the photo) and back (90°…270°, the plain back)
+    for half in (0, 1):
+        grid = []
+        for y, r in prof:
+            ring = []
+            for k in range(q + 1):
+                th = -np.pi / 2 + (k / q) * np.pi + half * np.pi  # θ = 0 faces +Z
+                x = r * np.sin(th)
+                z = r * np.cos(th)
+                u = (centre + x) / w
+                ring.append(mesh.v((x * s, (h - y) * s, z * s), ((u + half) / 2, y / h)))
+            grid.append(ring)
+        for i in range(len(grid) - 1):
+            for k in range(q):
+                a, b, c, d = grid[i][k], grid[i][k + 1], grid[i + 1][k], grid[i + 1][k + 1]
+                mesh.tri(a, c, b)
+                mesh.tri(b, c, d)
+        # caps (top and bottom), coloured from the photo's centre column
+        for ring, (y, r), up in ((grid[0], prof[0], True), (grid[-1], prof[-1], False)):
+            c = mesh.v((0, (h - y) * s, 0), (centre / w / 2, y / h))
+            for k in range(q):
+                if up:
+                    mesh.tri(c, ring[k + 1], ring[k])
+                else:
+                    mesh.tri(c, ring[k], ring[k + 1])
+    return mesh, atlas
 
 
 def outline(m: np.ndarray) -> np.ndarray:
@@ -351,6 +389,7 @@ def main():
     img = load_rgba(a.photo)
     m = get_mask(img, a.background)
     rgb, mm = crop(img, m)
+    cut = rgb
     shape = choose_shape(mm) if a.shape == 'auto' else a.shape
     h, w = mm.shape
     if a.height_cm:
@@ -363,7 +402,7 @@ def main():
     else:
         depth_m = width_m * (0.35 if shape == 'box' else 0.22)
     if shape == 'round':
-        mesh = build_round(mm, height_m)
+        mesh, rgb = build_round(mm, rgb, height_m)
     elif shape == 'box':
         mesh = build_box(mm, height_m, depth_m)
     else:
@@ -371,7 +410,7 @@ def main():
     name = a.out.rsplit('/', 1)[-1].rsplit('.', 1)[0]
     verts, tris, size = write_glb(mesh, rgb, a.out, name)
     if a.preview:
-        rgba = np.dstack([rgb, (mm * 255).astype(np.uint8)])
+        rgba = np.dstack([cut, (mm * 255).astype(np.uint8)])
         Image.fromarray(rgba).save(a.preview)
     dims = f'{width_m * 100:.1f} × {height_m * 100:.1f} × {(width_m if shape == "round" else depth_m) * 100:.1f} cm'
     print(f'{a.out}: shape={shape}, {dims} (W×H×D), {verts} vertices, {tris} triangles, {size / 1024:.0f} KB')
