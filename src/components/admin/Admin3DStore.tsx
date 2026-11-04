@@ -875,7 +875,7 @@ function DeptPromoScreens({ promos, departments, call, reload, flash }: { promos
     <section className="rounded-2xl border border-slate-200 bg-white p-5">
       <div className="mb-1 flex items-center gap-2 text-sm font-black text-slate-900"><Video className="h-4 w-4 text-blue-600" /> Department promo screens</div>
       <p className="mb-4 text-xs text-slate-500">
-        Every department has a large promo screen high on its back wall, facing the entrance. Its videos play one after another in this order and the last one leads back to the first; a single video loops.
+        Every department’s whole back wall is an LED promo screen facing the entrance, with the department name scrolling across the top. Its videos play one after another in this order and the last one leads back to the first; a single video loops.
         For the smoothest playback use 16:9 MP4 (H.264) at 1280×720 or 1920×1080, ideally under 30 MB. Screens play without sound.
       </p>
       {placed.length === 0 && <p className="text-xs text-slate-500">No department has a room yet. Give a department a room position in “Departments & entrances” first.</p>}

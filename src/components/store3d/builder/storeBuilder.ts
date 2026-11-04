@@ -9,8 +9,9 @@ import {
   packagingTexture, simpleScreenTexture,
 } from './signage';
 import { createLedBoard } from './ledScreen';
+import { buildPromoWall } from './promoWall';
 import { buildFixture, FixturePalette } from './fixtures';
-import { STORE, Rect, roomForSlot, placeFixture, RoomGeometry, localToWorld } from '../layout/storeLayout';
+import { STORE, Rect, roomForSlot, placeFixture, RoomGeometry, localToWorld, formatDeptNumber } from '../layout/storeLayout';
 import { StoreDepartment, StoreShelf, PromoScreen, InteriorStyle, LedScreen } from '../../../types';
 
 export type TargetKind = 'product' | 'reception' | 'checkout' | 'basket' | 'map' | 'dept_info' | 'promo';
@@ -145,6 +146,8 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
   const targets: InteractiveTarget[] = [];
   const videoScreens: VideoScreen[] = [];
   const ledAnims: ((t: number) => void)[] = [];
+  /** cheap per-frame animations (texture offsets, opacities) that run every frame */
+  const wallAnims: ((t: number) => void)[] = [];
   let ledCursor = 0;
   const ledById = new Map((opts.leds || []).map((l) => [l.id, l]));
   const hitGroup = new THREE.Group();
@@ -534,39 +537,35 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
   }
 
   /**
-   * Department promo screen: a 16:9 wall display centred high on the back wall, facing the entrance.
-   * It hangs between the 2.5 m wall shelving and the 4.4 m ceiling, so it is clear of every fixture
-   * and is the first thing a shopper sees on walking in. Admin videos for the department play on it in order.
+   * Department promo wall: the whole back wall is an LED screen facing the entrance. Admin videos for
+   * the department play across it in order; the department name scrolls in a glowing band at the top
+   * and stays in motion over the video.
    */
   function mountDeptPromo(room: RoomGeometry, dept: StoreDepartment, backX: number, accent: string) {
-    const W = 2.8;
-    const H = W * 9 / 16;
-    // top just under the 4.4 m ceiling; the bottom (≈2.7 m) clears 2.5 m wall shelving and the demo-table screen
-    const cy = 4.3 - H / 2;
     const clips = promos
       .filter((p) => p.location === dept.id && p.video_url)
       .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0));
-    const faceYaw = room.inward === 1 ? -Math.PI / 2 : Math.PI / 2;
+    const H = STORE.roomHeight;
+    const W = STORE.roomFrontage - 0.22; // between the partition walls
+    const bottom = 0.12; // above the skirting
+    const height = H - 0.02 - bottom;
     const out = -room.inward; // from the back wall towards the entrance
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(0.1, H + 0.12, W + 0.12), std('#0d0e10', 0.35, 0.5));
-    frame.position.set(backX + out * 0.19, cy, room.centerZ);
-    root.add(frame);
-    // thin accent light under the bezel
-    const glow = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, W * 0.7), emissive(accent, 1));
-    glow.position.set(backX + out * 0.24, cy - H / 2 - 0.09, room.centerZ);
-    root.add(glow);
-    const lines = clips.length
-      ? clips.map((c) => c.title).filter(Boolean)
-      : [dept.description || 'New promotions arrive here soon'];
-    const board = createLedBoard({ title: dept.name, lines, accent, wide: true });
-    disposables.push(board);
-    ledAnims.push(board.update);
-    const scr = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicMaterial({ map: board.texture, toneMapped: false }));
-    scr.position.set(backX + out * 0.245, cy, room.centerZ);
-    scr.rotation.y = faceYaw;
-    root.add(scr);
+    const wall = buildPromoWall({
+      width: W, height, name: dept.name, number: formatDeptNumber(dept.aisle_number), accent,
+      tagline: dept.info_text || dept.description || '', lowDetail: low,
+    });
+    disposables.push(wall);
+    wallAnims.push(wall.update);
+    wall.group.position.set(backX + out * 0.16, bottom + height / 2, room.centerZ);
+    wall.group.rotation.y = room.inward === 1 ? -Math.PI / 2 : Math.PI / 2;
+    root.add(wall.group);
+    wall.group.updateMatrixWorld(true);
     const urls = clips.map((c) => c.video_url as string);
-    if (urls.length) videoScreens.push({ mesh: scr, id: `deptpromo_${dept.id}`, videoUrl: urls[0], playlist: urls, center: scr.position.clone() });
+    if (urls.length) {
+      const center = new THREE.Vector3();
+      wall.screen.getWorldPosition(center);
+      videoScreens.push({ mesh: wall.screen, id: `deptpromo_${dept.id}`, videoUrl: urls[0], playlist: urls, center });
+    }
   }
 
   function buildRoom(room: RoomGeometry, dept: StoreDepartment | undefined, slot: number) {
@@ -829,6 +828,7 @@ export async function buildStore(departments: StoreDepartment[], shelves: StoreS
     animate: (t: number, dt: number) => {
       centre.update(t, dt);
       facadeAnim(t);
+      for (let i = 0; i < wallAnims.length; i++) wallAnims[i](t);
       const n = ledAnims.length;
       if (!n) return;
       // A few boards per frame. Every screen still scrolls; one frame never redraws them all.
