@@ -348,16 +348,10 @@ function demoTable(ctx: FixtureCtxInternal, shelf: StoreShelf, kitchen = false):
     }
     priceLabel(c, p, shelf, 0.6, H + 0.06, D / 2 - 0.05, 0, -Math.PI / 3);
   }
-  // demonstration screen on a slim stand behind the table
-  add(0.06, 1.9, 0.06, 0, 0.95, -D / 2 - 0.25, std(c.palette.metal, 0.3, 0.8));
-  const screenFrame = new THREE.BoxGeometry(2.28, 1.32, 0.05);
-  c.batch.addMatrix(screenFrame, std('#0d0e10', 0.4, 0.3), p.matrix(0, 2.05, -D / 2 - 0.22));
-  screenFrame.dispose();
-  const screen = new THREE.Mesh(new THREE.PlaneGeometry(2.16, 1.22), new THREE.MeshBasicMaterial({ color: '#111' }));
-  screen.applyMatrix4(p.matrix(0, 2.05, -D / 2 - 0.194));
+  // no screen behind the table: the department's full-wall promo screen is behind it
   bayTag(c, p, shelf, W / 2 - 0.25, H - 0.16, D / 2 + 0.004);
   shadowDecal(c, p, W, D);
-  return { w: W, d: D + 0.55, h: 2.75, screen, dynamic: [screen] };
+  return { w: W, d: D + 0.1, h: H, dynamic: [] };
 }
 
 function mannequinFixture(ctx: FixtureCtxInternal, shelf: StoreShelf, palette: FixturePalette): FixtureResult {
