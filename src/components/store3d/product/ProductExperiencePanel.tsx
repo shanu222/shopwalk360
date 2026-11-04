@@ -43,8 +43,16 @@ export const ProductExperiencePanel: React.FC<Props> = ({ shelf, avatar, integra
     setError(null);
     fetch(`/api/products/${shelf.product_slug || shelf.product_id}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('Product not found'))))
-      .then((d) => {
+      .then((raw) => {
         if (off) return;
+        if (!raw?.product) throw new Error('Product not found');
+        // every list is always present, whatever the server sent
+        const d = {
+          product: raw.product as Product,
+          images: Array.isArray(raw.images) ? raw.images : [],
+          variants: Array.isArray(raw.variants) ? raw.variants : [],
+          reviews: Array.isArray(raw.reviews) ? raw.reviews : [],
+        };
         setData(d);
         const firstColour = d.variants?.find((v: ProductVariant) => v.color)?.color || (d.product.color_options || '').split(',')[0]?.trim() || '';
         setColour(firstColour);

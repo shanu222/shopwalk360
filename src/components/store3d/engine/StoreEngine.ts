@@ -189,7 +189,7 @@ export class StoreEngine {
 
   /** current state for sharing with other shoppers */
   getPlayerState() {
-    return { x: this.pos.x, z: this.pos.z, yaw: this.yaw, speed: this.speedNow, inside: this.state === 'inside' };
+    return { x: this.pos.x, z: this.pos.z, yaw: this.yaw, camYaw: this.camYaw, speed: this.speedNow, inside: this.state === 'inside' };
   }
 
   // pick-from-shelf → basket animation
@@ -574,6 +574,37 @@ export class StoreEngine {
       this.avatar.root.rotation.y = yaw;
     }
     this.snapCamera();
+  }
+
+  /**
+   * Put the shopper back where they were before a page reload. If that spot is now taken
+   * (the layout changed) or is outside the building, use the nearest free spot, or the reception.
+   */
+  resumeAt(x: number, z: number, yaw: number, camYaw = yaw) {
+    const B = STORE.bounds;
+    const ok = (px: number, pz: number) =>
+      Number.isFinite(px) && Number.isFinite(pz) && px > B.minX + 0.5 && px < B.maxX - 0.5 && pz > B.minZ + 0.5 && pz < STORE.facadeZ - 0.6 &&
+      zoneAt(px, pz).kind !== 'outside' && !this.blocked(px, pz, 0.35);
+    let spot: { x: number; z: number } | null = ok(x, z) ? { x, z } : null;
+    for (let r = 0.5; !spot && r <= 4; r += 0.5) {
+      for (let a = 0; a < 16 && !spot; a++) {
+        const px = x + Math.cos((a / 16) * Math.PI * 2) * r;
+        const pz = z + Math.sin((a / 16) * Math.PI * 2) * r;
+        if (ok(px, pz)) spot = { x: px, z: pz };
+      }
+    }
+    if (!spot) {
+      this.teleport(STORE.spawnInside.x, STORE.spawnInside.z, Math.PI, 'inside');
+      return false;
+    }
+    this.teleport(spot.x, spot.z, Number.isFinite(yaw) ? yaw : Math.PI, 'inside');
+    if (Number.isFinite(camYaw)) {
+      this.camYaw = camYaw;
+      this.snapCamera();
+    }
+    this.lastZoneKey = '';
+    this.updateZone();
+    return true;
   }
 
   /** Scripted entrance: doors open, avatar walks into the reception, camera follows */

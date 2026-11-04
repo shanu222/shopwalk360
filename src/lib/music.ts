@@ -19,6 +19,17 @@ interface MusicState {
 }
 
 const KEY = 'shopwalk360_sound';
+/** track and position, so a page refresh carries on from the same second */
+const POS_KEY = 'shopwalk360_music_pos';
+
+function readPos(): { id: string; t: number } | null {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(POS_KEY) || 'null');
+    return v && typeof v.id === 'string' && Number.isFinite(v.t) ? v : null;
+  } catch {
+    return null;
+  }
+}
 
 function readEnabled() {
   try {
@@ -39,6 +50,8 @@ class MusicController {
   private loaded = false;
   private failures = 0;
   private gestureArmed = false;
+  private resumeAt: number | null = null;
+  private lastPosSave = 0;
   state: MusicState = { tracks: [], index: 0, playing: false, enabled: readEnabled(), waitingForGesture: false };
 
   subscribe = (fn: () => void) => {
@@ -62,7 +75,16 @@ class MusicController {
         this.failures = 0;
         this.set({ playing: true, waitingForGesture: false });
       });
-      a.addEventListener('pause', () => this.set({ playing: false }));
+      a.addEventListener('pause', () => {
+        this.set({ playing: false });
+        this.savePos(true);
+      });
+      a.addEventListener('timeupdate', () => this.savePos(false));
+      a.addEventListener('loadedmetadata', () => {
+        if (this.resumeAt != null && this.resumeAt < (a.duration || Infinity) - 1) a.currentTime = this.resumeAt;
+        this.resumeAt = null;
+      });
+      if (typeof window !== 'undefined') window.addEventListener('pagehide', () => this.savePos(true));
       a.addEventListener('error', () => {
         // skip a broken file, but stop if every track fails
         this.failures++;
@@ -81,10 +103,27 @@ class MusicController {
       const r = await fetch('/api/music');
       const d = await r.json();
       const tracks: MusicTrack[] = Array.isArray(d.tracks) ? d.tracks : [];
-      this.set({ tracks, index: 0 });
+      const pos = readPos();
+      const at = pos ? tracks.findIndex((t) => t.id === pos.id) : -1;
+      if (at >= 0) this.resumeAt = pos!.t;
+      this.set({ tracks, index: at >= 0 ? at : 0 });
       if (tracks.length && this.state.enabled) this.play();
     } catch {
       /* no music available */
+    }
+  }
+
+  private savePos(force: boolean) {
+    const a = this.audio;
+    const t = this.state.tracks[this.state.index];
+    if (!a || !t || !a.src) return;
+    const now = Date.now();
+    if (!force && now - this.lastPosSave < 2000) return;
+    this.lastPosSave = now;
+    try {
+      sessionStorage.setItem(POS_KEY, JSON.stringify({ id: t.id, t: a.currentTime || 0 }));
+    } catch {
+      /* ignore */
     }
   }
 

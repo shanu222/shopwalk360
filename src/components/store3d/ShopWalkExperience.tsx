@@ -14,6 +14,8 @@ import { applyTryOns } from './avatar/tryOn';
 import { loadSavedAvatar, deleteSavedAvatar } from './avatar/avatarService';
 import { parseColorMap } from './builder/productModels';
 import { storeAudio } from './engine/audio';
+import { readVisit, writeVisit, clearVisit, StoreVisit } from './session';
+import { STORE } from './layout/storeLayout';
 
 interface Props {
   cart: CartItem[];
@@ -27,30 +29,32 @@ interface Props {
   onSwitchTo2D: () => void;
 }
 
-type Phase = 'gate' | 'entering' | 'shopping';
+type Phase = 'gate' | 'entering' | 'resuming' | 'shopping';
 
 const QUALITY_KEY = 'shopwalk360_quality';
 
 export default function ShopWalkExperience(props: Props) {
   const { cart, focusCategorySlug, onFocusHandled, externalModalOpen, onAddToCart, onBuyNow, onOpenCart, onOpenCheckout, onSwitchTo2D } = props;
   const mount = useRef<HTMLDivElement>(null);
+  // a shopper who refreshes the page goes straight back to where they were
+  const [visit] = useState<StoreVisit | null>(() => readVisit());
   const engine = useRef<StoreEngine | null>(null);
   const [webgl] = useState(() => detectWebGL());
   const [layout, setLayout] = useState<StoreLayoutV2 | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [progress, setProgress] = useState({ p: 0, label: '' });
-  const [phase, setPhase] = useState<Phase>('gate');
+  const [phase, setPhase] = useState<Phase>(visit ? 'resuming' : 'gate');
   const [contextLost, setContextLost] = useState(false);
   const [integrations, setIntegrations] = useState<ExperienceIntegrations>({ avatarGeneration: false, garmentTryOn: false, aiAssistant: false });
 
-  const [avatar, setAvatar] = useState<AvatarConfig>(DEFAULT_AVATAR);
+  const [avatar, setAvatar] = useState<AvatarConfig>(() => visit?.avatar || DEFAULT_AVATAR);
   const [saved, setSaved] = useState<{ config: AvatarConfig; where: 'account' | 'device' } | null>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [studio, setStudio] = useState<{ open: boolean; step: 'start' | 'presets' | 'preview' | 'customize'; enterOnConfirm: boolean }>({ open: false, step: 'start', enterOnConfirm: true });
-  const [tryOns, setTryOns] = useState<TryOnOverride[]>([]);
+  const [tryOns, setTryOns] = useState<TryOnOverride[]>(() => visit?.tryOns || []);
 
-  const [cameraMode, setCameraMode] = useState<CameraMode>('third_person');
+  const [cameraMode, setCameraMode] = useState<CameraMode>(() => visit?.cameraMode || 'third_person');
   const [quality, setQualityState] = useState<Quality>(() => {
     try {
       return (localStorage.getItem(QUALITY_KEY) as Quality) || suggestQuality();
@@ -113,13 +117,15 @@ export default function ShopWalkExperience(props: Props) {
         if (integ) setIntegrations(integ);
         setSaved(sv.saved);
         setSignedIn(sv.signedIn);
-        if (sv.saved) setAvatar(sv.saved.config);
+        // the avatar the shopper was using wins over the saved one when resuming a visit
+        if (sv.saved && !visit) setAvatar(sv.saved.config);
         const eng = new StoreEngine(mount.current!, quality, {
           onProgress: (p, label) => setProgress({ p, label }),
           onReady: () => setReady(true),
           onNearest: setNearest,
           onPosition: (p) => {
             setPlayer(p);
+            saveVisit.current(false);
             const st = eng.getPlayerState();
             presence.current?.sendPosition(st.x, st.z, st.yaw, st.speed, st.inside);
             setWalking(eng.isWalking());
@@ -144,7 +150,27 @@ export default function ShopWalkExperience(props: Props) {
         });
         engine.current = eng;
         (window as any).__shopwalk = eng; // handy for support / automated checks
-        eng.load(lay, sv.saved?.config || DEFAULT_AVATAR, false).catch((e) => setLoadError(String(e?.message || e)));
+        const startCfg = visit ? applyTryOns(visit.avatar, visit.tryOns, colorMapsFor(lay)) : sv.saved?.config || DEFAULT_AVATAR;
+        eng
+          .load(lay, startCfg, !!visit)
+          .then(() => {
+            if (cancelled || !visit) return;
+            eng.resumeAt(visit.x, visit.z, visit.yaw, visit.camYaw);
+            eng.setCameraMode(visit.cameraMode);
+            setPhase('shopping');
+            if (pendingFocus.current) {
+              focusDepartment.current(pendingFocus.current);
+              pendingFocus.current = null;
+            }
+            const shelf = visit.openShelfId ? lay.shelves.find((s: StoreShelf) => s.id === visit.openShelfId) : null;
+            if (shelf) {
+              setInspect(shelf);
+              setHighlight(shelf.id);
+            }
+          })
+          .catch((e) => {
+            if (!cancelled) setLoadError(String(e?.message || e));
+          });
       })
       .catch((e) => !cancelled && setLoadError(e.message));
     return () => {
@@ -285,6 +311,8 @@ export default function ShopWalkExperience(props: Props) {
 
   const enterWith = (cfg: AvatarConfig) => {
     setAvatar(cfg);
+    // a refresh during the walk-in brings the shopper back inside at the reception
+    writeVisit({ x: STORE.spawnInside.x, z: STORE.spawnInside.z, yaw: Math.PI, camYaw: Math.PI, cameraMode, avatar: cfg, tryOns, openShelfId: null });
     setPhase('entering');
     // let the avatar update before the walk-in starts
     requestAnimationFrame(() => engine.current?.enterStore());
@@ -302,6 +330,41 @@ export default function ShopWalkExperience(props: Props) {
   const wear = (o: TryOnOverride) => {
     setTryOns((list) => [...list.filter((x) => x.slot !== o.slot), o]);
     showToast(`Your avatar is now wearing ${o.productName.replace(/\s*\(Sample Listing\)/, '')}${o.colorName ? ` in ${o.colorName}` : ''}.`);
+  };
+
+  /* -------------------------------------------------- remember the visit (for page refresh) */
+  const live = useRef({ phase, avatar, tryOns, cameraMode, inspectId: null as string | null });
+  live.current = { phase, avatar, tryOns, cameraMode, inspectId: inspect?.id ?? null };
+  const lastSave = useRef(0);
+  const saveVisit = useRef<(force: boolean) => void>(() => {});
+  saveVisit.current = (force: boolean) => {
+    const e = engine.current;
+    const l = live.current;
+    if (!e || l.phase !== 'shopping') return;
+    const now = performance.now();
+    if (!force && now - lastSave.current < 1000) return;
+    lastSave.current = now;
+    const st = e.getPlayerState();
+    if (!st.inside) return;
+    writeVisit({ x: st.x, z: st.z, yaw: st.yaw, camYaw: st.camYaw, cameraMode: l.cameraMode, avatar: l.avatar, tryOns: l.tryOns, openShelfId: l.inspectId });
+  };
+  // save straight away when what the shopper is wearing or looking at changes, and when the page goes away
+  useEffect(() => {
+    saveVisit.current(true);
+  }, [phase, avatar, tryOns, cameraMode, inspect]);
+  useEffect(() => {
+    const flush = () => saveVisit.current(true);
+    const onVis = () => document.visibilityState === 'hidden' && flush();
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, []);
+  const leaveTo2D = () => {
+    clearVisit();
+    onSwitchTo2D();
   };
 
   /* -------------------------------------------------- render */
@@ -338,8 +401,20 @@ export default function ShopWalkExperience(props: Props) {
             setAvatar(DEFAULT_AVATAR);
             showToast('Your saved avatar has been deleted.');
           }}
-          onClassic={onSwitchTo2D}
+          onClassic={leaveTo2D}
         />
+      )}
+
+      {phase === 'resuming' && !loadError && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#151311]">
+          <div className="w-64 space-y-3 text-center text-white">
+            <p className="text-sm font-semibold">Taking you back to where you were…</p>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+              <div className="h-full rounded-full bg-[#c8a96a] transition-[width] duration-300" style={{ width: `${Math.round(Math.max(0.05, progress.p) * 100)}%` }} />
+            </div>
+            <p className="text-[11px] text-white/50">{progress.label || 'Opening the store'}</p>
+          </div>
+        </div>
       )}
 
       {phase === 'entering' && (
@@ -408,7 +483,7 @@ export default function ShopWalkExperience(props: Props) {
           onCheckout={onOpenCheckout}
           onQuality={setQualityState}
           onMute={() => setMuted((m) => !m)}
-          onSwitch2D={onSwitchTo2D}
+          onSwitch2D={leaveTo2D}
           onJoystick={(x, y) => engine.current?.setJoystick(x, y)}
           onRemoveTryOn={(slot) => setTryOns((l) => l.filter((t) => t.slot !== slot))}
           onAddTryOnToBasket={(t) => {
@@ -435,7 +510,7 @@ export default function ShopWalkExperience(props: Props) {
             <p className="text-sm text-white/70">{contextLost ? 'This can happen when the device runs low on graphics memory.' : loadError}</p>
             <div className="flex justify-center gap-2">
               <button onClick={() => location.reload()} className="flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2.5 text-sm font-semibold"><RefreshCw className="h-4 w-4" /> Reload</button>
-              <button onClick={onSwitchTo2D} className="flex items-center gap-2 rounded-xl bg-[#c8a96a] px-4 py-2.5 text-sm font-bold text-[#1a1712]"><Store className="h-4 w-4" /> Online store</button>
+              <button onClick={leaveTo2D} className="flex items-center gap-2 rounded-xl bg-[#c8a96a] px-4 py-2.5 text-sm font-bold text-[#1a1712]"><Store className="h-4 w-4" /> Online store</button>
             </div>
           </div>
         </div>
@@ -457,6 +532,7 @@ export default function ShopWalkExperience(props: Props) {
       />
 
       {inspect && (
+        <PanelBoundary key={inspect.id} onClose={() => setInspect(null)}>
         <ProductExperiencePanel
           shelf={inspect}
           avatar={avatar}
@@ -473,9 +549,39 @@ export default function ShopWalkExperience(props: Props) {
             setInspect(null);
           }}
         />
+        </PanelBoundary>
       )}
     </div>
   );
+}
+
+/** If a product panel fails to render, show a short message instead of taking the whole store down. */
+class PanelBoundary extends React.Component<{ onClose: () => void; children: React.ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(err: unknown) {
+    console.error('Product panel error', err);
+  }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/50 p-6" role="dialog" aria-modal="true">
+        <div className="max-w-sm space-y-3 rounded-2xl bg-white p-5 text-center text-sm text-slate-700">
+          <p className="font-semibold text-slate-900">This product could not be opened right now.</p>
+          <p>Please try again in a moment.</p>
+          <button onClick={this.props.onClose} className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white">Back to the store</button>
+        </div>
+      </div>
+    );
+  }
+}
+
+function colorMapsFor(lay: StoreLayoutV2) {
+  const m: Record<string, string> = {};
+  lay.shelves.forEach((s) => Object.assign(m, parseColorMap(s.color_hex_map)));
+  return m;
 }
 
 /** Lets the experience open a HUD panel (e.g. the map when the shopper uses the map kiosk) */
