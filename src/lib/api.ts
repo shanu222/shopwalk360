@@ -64,3 +64,24 @@ window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
   if (res.status === 401 && url === '/api/auth/me') setToken(null);
   return res;
 };
+
+/**
+ * Download a file from the API as the signed-in user (a plain link would go to the frontend host
+ * and carry no sign-in, so it cannot fetch admin files).
+ */
+export async function downloadFromApi(path: string, filename: string) {
+  const r = await fetch(path);
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    throw new Error(d.error || 'The file could not be downloaded.');
+  }
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}

@@ -31,7 +31,7 @@ export const HelpChat: React.FC = () => {
   const alignRight = !pos || pos.left > window.innerWidth / 2;
 
   return (
-    <div className="fixed z-[65]" style={pos ? { left: pos.left, top: pos.top } : { right: 20, bottom: 20 }}>
+    <div className="fixed z-[45]" style={pos ? { left: pos.left, top: pos.top } : { right: 20, bottom: 20 }}>
       {open && (
         <div className={`absolute bottom-16 w-[min(92vw,340px)] rounded-2xl border border-slate-200 bg-white p-4 text-slate-900 shadow-2xl ${alignRight ? 'right-0' : 'left-0'}`}>
           <div className="mb-3 flex items-center justify-between">

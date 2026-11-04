@@ -157,23 +157,25 @@ export const AdminMusic: React.FC = () => {
                 <button onClick={() => preview(t)} className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-white" aria-label={playing === t.id ? 'Pause preview' : 'Play preview'}>
                   {playing === t.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                 </button>
-                <div className="min-w-0 flex-1">
-                  <input
+                <div className="min-w-[10rem] flex-1">
+                  <input aria-label="Track title"
                     defaultValue={t.title}
                     onBlur={(e) => e.target.value.trim() !== t.title && update(t, { title: e.target.value })}
                     className="w-full truncate bg-transparent text-sm font-semibold text-slate-900 focus:outline-none"
                   />
                   <p className="text-xs text-slate-500">{t.artist || '—'}</p>
                 </div>
-                <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${t.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                <div className="ml-auto flex items-center gap-1">
+                <span className={`mr-1 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold ${t.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                   {t.is_active ? 'Playing in store' : 'Hidden'}
                 </span>
-                <button onClick={() => update(t, { is_active: !t.is_active })} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100" title={t.is_active ? 'Hide from store' : 'Show in store'}>
+                <button onClick={() => update(t, { is_active: !t.is_active })} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100" title={t.is_active ? 'Hide from store' : 'Show in store'} aria-label={t.is_active ? 'Hide from store' : 'Show in store'}>
                   {t.is_active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
-                <button onClick={() => move(i, -1)} disabled={i === 0} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-30" title="Move up"><ArrowUp className="h-4 w-4" /></button>
-                <button onClick={() => move(i, 1)} disabled={i === tracks.length - 1} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-30" title="Move down"><ArrowDown className="h-4 w-4" /></button>
-                <button onClick={() => remove(t)} className="rounded-lg p-2 text-red-600 hover:bg-red-50" title="Remove"><Trash2 className="h-4 w-4" /></button>
+                <button onClick={() => move(i, -1)} disabled={i === 0} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-30" title="Move up" aria-label="Move up"><ArrowUp className="h-4 w-4" /></button>
+                <button onClick={() => move(i, 1)} disabled={i === tracks.length - 1} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-30" title="Move down" aria-label="Move down"><ArrowDown className="h-4 w-4" /></button>
+                <button onClick={() => remove(t)} className="rounded-lg p-2 text-red-600 hover:bg-red-50" title="Remove" aria-label="Remove track"><Trash2 className="h-4 w-4" /></button>
+                </div>
               </li>
             ))}
           </ul>

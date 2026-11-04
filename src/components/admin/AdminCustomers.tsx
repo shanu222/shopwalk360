@@ -87,7 +87,7 @@ export const AdminCustomers: React.FC = () => {
           <p className="p-6 text-sm text-slate-500">{rows.length ? 'No customers match your search.' : 'No customer accounts yet. They appear here as soon as someone signs up on the storefront.'}</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
+            <table className="w-full min-w-[640px] text-sm">
               <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Customer</th>

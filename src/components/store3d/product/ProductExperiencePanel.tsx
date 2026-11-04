@@ -125,7 +125,7 @@ export const ProductExperiencePanel: React.FC<Props> = ({ shelf, avatar, integra
   const mediaTabs: { id: Media; label: string; icon: React.ElementType; show: boolean }[] = [
     { id: 'photos', label: 'Photos', icon: ImageIcon, show: true },
     { id: '3d', label: '3D view', icon: Box, show: true },
-    { id: 'video', label: 'Watch How It Works', icon: Video, show: true },
+    { id: 'video', label: 'Watch How It Works', icon: Video, show: !!video },
     { id: 'tryon', label: tryType === 'beauty' ? 'Try shades' : 'Try on', icon: Shirt, show: hasTryOn },
     { id: 'room', label: 'In my room', icon: HomeIcon, show: tryType === 'furniture' },
   ];
@@ -326,13 +326,15 @@ export const ProductExperiencePanel: React.FC<Props> = ({ shelf, avatar, integra
                 </div>
                 <button disabled={stock <= 0} onClick={() => add(true)} className="w-full rounded-xl border border-slate-900 py-3 text-sm font-bold hover:bg-slate-50 disabled:opacity-40">Buy now · PKR {(Number(unit) * qty).toLocaleString()}</button>
 
-                <button onClick={() => setMedia('video')} className={`flex w-full items-center gap-3 rounded-2xl p-3 text-left ${video ? 'bg-rose-50 hover:bg-rose-100' : 'bg-slate-50 hover:bg-slate-100'}`}>
+                {video && (
+                  <button onClick={() => setMedia('video')} className={`flex w-full items-center gap-3 rounded-2xl p-3 text-left ${video ? 'bg-rose-50 hover:bg-rose-100' : 'bg-slate-50 hover:bg-slate-100'}`}>
                   <span className={`flex h-10 w-10 items-center justify-center rounded-full ${video ? 'bg-rose-600 text-white' : 'bg-slate-200 text-slate-500'}`}><Play className="ml-0.5 h-5 w-5" /></span>
                   <span>
                     <span className="block text-sm font-bold">Watch How It Works</span>
                     <span className="block text-[11px] text-slate-500">{video ? 'Demonstration video' : 'No video yet — see photos and specifications'}</span>
                   </span>
                 </button>
+                )}
 
                 {p.warranty && <div className="flex items-center gap-2 text-xs text-slate-600"><ShieldCheck className="h-4 w-4 text-slate-500" /> Warranty / returns: {p.warranty}</div>}
               </div>

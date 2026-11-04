@@ -92,7 +92,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. AC-20261028-1001"
+                  placeholder="e.g. SW-20261028-1001"
                   value={orderNumber}
                   onChange={(e) => setOrderNumber(e.target.value.toUpperCase())}
                   className="w-full text-xs uppercase px-3 py-2.5 bg-white border border-slate-300 rounded-xl focus:border-[#c8a96a] focus:outline-hidden"

@@ -172,8 +172,8 @@ function FloorTab({ departments, shelves, onPickDept, onPickShelf }: { departmen
   const active = departments.filter((d) => d.is_active !== 0);
   return (
     <div className="grid gap-6 lg:grid-cols-[340px_1fr]">
-      <div className="rounded-3xl border border-slate-200 bg-[#1b1916] p-4">
-        <StoreMap departments={active} shelves={shelves} showFixtures includePlaza onPickDept={onPickDept} onPickShelf={onPickShelf} className="mx-auto h-[640px] w-auto" title="Store floor plan" />
+      <div className="min-w-0 rounded-3xl border border-slate-200 bg-[#1b1916] p-4">
+        <StoreMap departments={active} shelves={shelves} showFixtures includePlaza onPickDept={onPickDept} onPickShelf={onPickShelf} className="mx-auto block h-auto max-h-[640px] w-full max-w-[420px]" title="Store floor plan" />
         <p className="mt-2 text-center text-[11px] text-white/60">Gold squares = fixtures holding products · dashed = free positions</p>
       </div>
       <div className="grid content-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -222,7 +222,7 @@ function DepartmentsTab({ departments, categories, call, reload, flash }: { depa
         <button onClick={() => setEdit({ name: '', theme_color: '#64748b', interior_style: 'gallery', lighting: 'neutral', is_active: 1 })} className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white"><Plus className="h-4 w-4" /> Add department</button>
       </div>
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-        <table className="min-w-full divide-y divide-slate-100 text-xs">
+        <table className="w-full min-w-[640px] divide-y divide-slate-100 text-xs">
           <thead className="bg-slate-50 text-left font-bold text-slate-700">
             <tr><th className="px-4 py-3">No.</th><th className="px-4 py-3">Department</th><th className="px-4 py-3">Entrance position</th><th className="px-4 py-3">Interior & lighting</th><th className="px-4 py-3">Category</th><th className="px-4 py-3 text-right">Actions</th></tr>
           </thead>
@@ -358,7 +358,7 @@ function FixturesTab({ departments, shelves, products, call, reload, flash }: { 
   // room plan: shop front at the bottom, promo wall at the top
   const footprint = (k: string) => (k === 'wall' ? [2.5, 0.4] : k === 'floor' ? [3, 0.96] : k === 'demo' ? [2.9, 1.7] : [1.6, 1.6]);
   const plan = (
-    <svg viewBox="-6 -1.6 12 18.6" className="h-[480px] w-auto rounded-2xl bg-[#1b1916]">
+    <svg viewBox="-6 -1.6 12 18.6" className="mx-auto block h-auto max-h-[480px] w-full max-w-[310px] rounded-2xl bg-[#1b1916]">
       <rect x={-5} y={0} width={10} height={16} fill="#2b2925" stroke="#5b564e" strokeWidth={0.05} />
       {/* promo wall + the clear zone in front of it */}
       <rect x={-3.9} y={0.15} width={7.8} height={16 - PROMO_CLEAR_FROM_U - 0.15} rx={0.2} fill="#c8a96a" fillOpacity={0.08} stroke="#c8a96a" strokeOpacity={0.35} strokeWidth={0.04} strokeDasharray="0.2 0.15" />
@@ -819,7 +819,7 @@ function ProductTab({ products, departments, shelves, call, reload, flash }: { p
 
           <Card title="Variants (colour / size with own price & stock)" icon={Layers}>
             <div className="overflow-x-auto">
-              <table className="w-full text-xs">
+              <table className="w-full min-w-[560px] text-xs">
                 <thead><tr className="text-left text-slate-500"><th>Title</th><th>Colour</th><th>Size</th><th>SKU</th><th>Price</th><th>Stock</th><th /></tr></thead>
                 <tbody>
                   {variants.map((v, i) => (

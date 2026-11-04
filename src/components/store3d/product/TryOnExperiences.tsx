@@ -132,14 +132,8 @@ const PhotoTryOn: React.FC<{ product: Product; colour: string; available: boolea
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  if (!available) {
-    return (
-      <div className="flex gap-2 rounded-2xl border border-dashed border-slate-300 p-3 text-[11px] leading-relaxed text-slate-600">
-        <Camera className="h-4 w-4 shrink-0" />
-        <span><b>Try it on my photo</b> on your own photo is coming soon. Use the avatar preview above.</span>
-      </div>
-    );
-  }
+  // offered only when the store has connected a photo try-on service
+  if (!available) return null;
   const run = async () => {
     if (!photo) return;
     setBusy(true);

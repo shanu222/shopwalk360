@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Building2, Plus, Phone, MessageSquare, MapPin, Star, 
-  Scale, CheckCircle2, AlertCircle, X, ExternalLink, ChevronRight
+  Scale, CheckCircle2, AlertCircle, X, ExternalLink, ChevronRight, Pencil
 } from 'lucide-react';
 import { Supplier, Product } from '../../types';
 
@@ -25,13 +25,80 @@ export const AdminSuppliers: React.FC<AdminSuppliersProps> = ({ products }) => {
   const [country, setCountry] = useState('Pakistan');
   const [address, setAddress] = useState('');
   const [supplierType, setSupplierType] = useState('Wholesaler');
-  const [terms, setTerms] = useState('30% Advance, 70% Upon Dispatch');
-  const [policy, setPolicy] = useState('14-Day Defect Replacement Guarantee');
-  const [relRating, setRelRating] = useState(4.8);
-  const [qualRating, setQualRating] = useState(4.7);
+  const [terms, setTerms] = useState('');
+  const [policy, setPolicy] = useState('');
+  const [relRating, setRelRating] = useState(4);
+  const [qualRating, setQualRating] = useState(4);
   const [notes, setNotes] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // add a quote (supplier price for a product) from the comparison tool
+  const [quoteSupplier, setQuoteSupplier] = useState('');
+  const [quotePrice, setQuotePrice] = useState<number | ''>('');
+  const [quoteFreight, setQuoteFreight] = useState<number | ''>(0);
+  const [quoteMoq, setQuoteMoq] = useState<number | ''>(10);
+  const [quoteLead, setQuoteLead] = useState<number | ''>(3);
+  const [quotePreferred, setQuotePreferred] = useState(false);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [quoteSaving, setQuoteSaving] = useState(false);
+
+  const openSupplierForm = (sup?: Supplier) => {
+    const v = (x: any, d: any) => (x === undefined || x === null ? d : x);
+    setEditingId(sup?.id || null);
+    setName(v(sup?.name, ''));
+    setBusinessName(v(sup?.business_name, ''));
+    setContactPerson(v(sup?.contact_person, ''));
+    setPhone(v(sup?.phone, '+92 '));
+    setWhatsapp(v(sup?.whatsapp, '+92 '));
+    setEmail(v(sup?.email, ''));
+    setCity(v(sup?.city, 'Lahore'));
+    setCountry(v(sup?.country, 'Pakistan'));
+    setAddress(v((sup as any)?.address, ''));
+    setSupplierType(v(sup?.supplier_type, 'Wholesaler'));
+    setTerms(v(sup?.payment_terms, ''));
+    setPolicy(v(sup?.return_policy, ''));
+    setRelRating(Number(v(sup?.reliability_rating, 4)));
+    setQualRating(Number(v(sup?.quality_rating, 4)));
+    setNotes(v((sup as any)?.notes, ''));
+    setFormError(null);
+    setIsAddModalOpen(true);
+  };
+
+  const saveQuote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setQuoteError(null);
+    if (!quoteSupplier || quotePrice === '' || Number(quotePrice) <= 0) {
+      setQuoteError('Choose a supplier and enter their unit price.');
+      return;
+    }
+    setQuoteSaving(true);
+    try {
+      const r = await fetch('/api/admin/suppliers/link-product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supplier_id: quoteSupplier,
+          product_id: selectedProductId,
+          wholesale_price: Number(quotePrice),
+          shipping_cost_estimate: Number(quoteFreight || 0),
+          moq: Number(quoteMoq || 1),
+          lead_time_days: Number(quoteLead || 0),
+          is_preferred: quotePreferred,
+        }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'The quote could not be saved.');
+      setQuotePrice('');
+      setQuotePreferred(false);
+      loadComparison(selectedProductId);
+      fetchSuppliers();
+    } catch (err: any) {
+      setQuoteError(err.message);
+    } finally {
+      setQuoteSaving(false);
+    }
+  };
 
   // Comparison Tool State
   const [comparisonModalOpen, setComparisonModalOpen] = useState(false);
@@ -80,8 +147,8 @@ export const AdminSuppliers: React.FC<AdminSuppliersProps> = ({ products }) => {
 
     setSaving(true);
     try {
-      const res = await fetch('/api/admin/suppliers', {
-        method: 'POST',
+      const res = await fetch(editingId ? `/api/admin/suppliers/${editingId}` : '/api/admin/suppliers', {
+        method: editingId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name,
@@ -131,13 +198,15 @@ export const AdminSuppliers: React.FC<AdminSuppliersProps> = ({ products }) => {
         <div className="flex items-center gap-2">
           <button
             onClick={() => handleOpenComparison()}
-            className="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-xs"
+            disabled={!products.length}
+            title={products.length ? undefined : 'Add a product first'}
+            className="disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-xs"
           >
             <Scale className="w-4 h-4" />
             Compare Suppliers Tool
           </button>
           <button
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={() => openSupplierForm()}
             className="px-4 py-2 bg-slate-900 hover:bg-blue-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition"
           >
             <Plus className="w-4 h-4" />
@@ -147,6 +216,12 @@ export const AdminSuppliers: React.FC<AdminSuppliersProps> = ({ products }) => {
       </div>
 
       {/* Suppliers Grid */}
+      {!loading && suppliers.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+          <Building2 className="mx-auto mb-2 h-6 w-6 text-slate-400" />
+          No suppliers yet. Register your first supplier to compare prices and raise purchase orders.
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {suppliers.map((s) => (
           <div
@@ -202,28 +277,37 @@ export const AdminSuppliers: React.FC<AdminSuppliersProps> = ({ products }) => {
               </div>
 
               {/* Terms & Policy */}
+              {(s.payment_terms || s.return_policy) && (
               <div className="text-[11px] text-slate-500 space-y-1 border-t border-slate-100 pt-2.5">
-                <div>
+                {s.payment_terms && <div>
                   <strong className="text-slate-700">Terms:</strong> {s.payment_terms}
-                </div>
-                <div>
+                </div>}
+                {s.return_policy && <div>
                   <strong className="text-slate-700">Warranty:</strong> {s.return_policy}
-                </div>
+                </div>}
               </div>
+              )}
             </div>
 
             <div className="pt-4 border-t border-slate-100 mt-4 flex items-center justify-between text-xs">
               <span className="text-slate-500">
-                {s.supplied_products_count || 1} Products Cataloged
+                {s.supplied_products_count || 0} {s.supplied_products_count === 1 ? 'product' : 'products'} quoted
               </span>
+              <div className="flex items-center gap-3">
+              <button type="button" onClick={() => openSupplierForm(s)} className="inline-flex items-center gap-1 font-bold text-slate-600 hover:text-slate-900">
+                <Pencil className="h-3.5 w-3.5" /> Edit
+              </button>
+              {(s.whatsapp || s.phone) && (s.whatsapp || s.phone).replace(/[^0-9]/g, '').length > 6 && (
               <a
                 href={`https://wa.me/${(s.whatsapp || s.phone).replace(/[^0-9]/g, '')}`}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-800 font-bold"
               >
-                Chat on WhatsApp &rarr;
+                WhatsApp &rarr;
               </a>
+              )}
+              </div>
             </div>
           </div>
         ))}
@@ -279,7 +363,7 @@ export const AdminSuppliers: React.FC<AdminSuppliersProps> = ({ products }) => {
                 <div className="p-12 text-center text-xs text-slate-500">Loading quotes...</div>
               ) : comparisonData?.comparison?.length === 0 ? (
                 <div className="p-8 text-center text-xs text-slate-500 bg-slate-50 rounded-2xl">
-                  No linked supplier quotes found for this product yet. Add suppliers or quotes below.
+                  No supplier quotes for this product yet. Add one below.
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -343,6 +427,51 @@ export const AdminSuppliers: React.FC<AdminSuppliersProps> = ({ products }) => {
                   </div>
                 </div>
               )}
+
+              <form onSubmit={saveQuote} className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 space-y-3">
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-700">Add a supplier quote</div>
+                {suppliers.length === 0 ? (
+                  <p className="text-xs text-slate-500">Register a supplier first, then add their price for this product here.</p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                      <label className="col-span-2 text-[11px] font-semibold text-slate-600">
+                        Supplier
+                        <select value={quoteSupplier} onChange={(e) => setQuoteSupplier(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs">
+                          <option value="">Choose…</option>
+                          {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.city}</option>)}
+                        </select>
+                      </label>
+                      <label className="text-[11px] font-semibold text-slate-600">
+                        Unit price (PKR)
+                        <input type="number" min={0} value={quotePrice} onChange={(e) => setQuotePrice(e.target.value === '' ? '' : Number(e.target.value))} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs" />
+                      </label>
+                      <label className="text-[11px] font-semibold text-slate-600">
+                        Freight / unit
+                        <input type="number" min={0} value={quoteFreight} onChange={(e) => setQuoteFreight(e.target.value === '' ? '' : Number(e.target.value))} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs" />
+                      </label>
+                      <label className="text-[11px] font-semibold text-slate-600">
+                        MOQ
+                        <input type="number" min={1} value={quoteMoq} onChange={(e) => setQuoteMoq(e.target.value === '' ? '' : Number(e.target.value))} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs" />
+                      </label>
+                      <label className="text-[11px] font-semibold text-slate-600">
+                        Lead time (days)
+                        <input type="number" min={0} value={quoteLead} onChange={(e) => setQuoteLead(e.target.value === '' ? '' : Number(e.target.value))} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs" />
+                      </label>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <label className="flex items-center gap-2 text-xs text-slate-700">
+                        <input type="checkbox" checked={quotePreferred} onChange={(e) => setQuotePreferred(e.target.checked)} className="accent-blue-600" />
+                        Make this the preferred supplier
+                      </label>
+                      <button type="submit" disabled={quoteSaving} className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-blue-600 disabled:bg-slate-300">
+                        {quoteSaving ? 'Saving…' : 'Add quote'}
+                      </button>
+                    </div>
+                    {quoteError && <p className="text-xs text-rose-600">{quoteError}</p>}
+                  </>
+                )}
+              </form>
             </div>
           </div>
         </div>
@@ -353,7 +482,7 @@ export const AdminSuppliers: React.FC<AdminSuppliersProps> = ({ products }) => {
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-fade-in">
           <div className="relative bg-white rounded-3xl max-w-xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
             <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
-              <h2 className="text-base font-bold text-slate-900">Register New Wholesale Supplier</h2>
+              <h2 className="text-base font-bold text-slate-900">{editingId ? 'Edit supplier' : 'Register New Wholesale Supplier'}</h2>
               <button
                 onClick={() => setIsAddModalOpen(false)}
                 className="p-1.5 rounded-full hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition"
@@ -497,7 +626,7 @@ export const AdminSuppliers: React.FC<AdminSuppliersProps> = ({ products }) => {
                   disabled={saving}
                   className="px-5 py-2 bg-slate-900 hover:bg-blue-600 disabled:bg-slate-300 text-white rounded-xl text-xs font-bold transition"
                 >
-                  {saving ? 'Registering...' : 'Register Supplier'}
+                  {saving ? 'Saving...' : editingId ? 'Save changes' : 'Register Supplier'}
                 </button>
               </div>
             </form>

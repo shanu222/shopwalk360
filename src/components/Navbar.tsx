@@ -25,15 +25,15 @@ interface NavbarProps {
 }
 
 export const BrandMark: React.FC<{ light?: boolean; size?: 'sm' | 'md' }> = ({ light, size = 'md' }) => (
-  <span className="group/brand flex items-center gap-2.5">
+  <span className="group/brand flex items-center gap-2 sm:gap-2.5">
     <img
       src="/brand/logo-128.webp"
       alt=""
       width={44}
       height={44}
-      className={`${size === 'sm' ? 'h-9 w-9' : 'h-11 w-11'} shrink-0 rounded-full drop-shadow-[0_2px_8px_rgba(200,169,106,0.45)] transition-transform duration-500 group-hover/brand:rotate-[8deg] group-hover/brand:scale-105`}
+      className={`${size === 'sm' ? 'h-9 w-9' : 'h-9 w-9 sm:h-11 sm:w-11'} shrink-0 rounded-full drop-shadow-[0_2px_8px_rgba(200,169,106,0.45)] transition-transform duration-500 group-hover/brand:rotate-[8deg] group-hover/brand:scale-105`}
     />
-    <span className={`${size === 'sm' ? 'text-base' : 'text-lg sm:text-xl'} font-extrabold tracking-tight ${light ? 'text-white' : 'text-[#1a1712]'}`}>
+    <span className={`${size === 'sm' ? 'text-base' : 'text-base sm:text-xl'} whitespace-nowrap font-extrabold tracking-tight ${light ? 'text-white' : 'text-[#1a1712]'}`}>
       ShopWalk<span className="text-[#b08d4f]"> 360</span>
     </span>
   </span>
@@ -74,7 +74,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex h-16 max-w-7xl items-center gap-2 px-3 sm:gap-3 sm:px-6 lg:px-8">
         <button onClick={onHome} aria-label="ShopWalk 360 home" className="shrink-0">
           <BrandMark />
         </button>
@@ -91,12 +91,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           />
         </form>
 
-        <nav className="ml-auto flex items-center gap-1 lg:ml-2" aria-label="Account">
+        <nav className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1 lg:ml-2" aria-label="Account">
           <MusicControl />
           <button onClick={onOpenTracking} className="hidden items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 xl:flex">
             <Truck className="h-4 w-4" /> Track order
           </button>
-          <button onClick={onOpenAuth} aria-label={currentUser ? 'My account' : 'Sign in'} className="flex items-center gap-2 rounded-full px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100">
+          <button onClick={onOpenAuth} aria-label={currentUser ? 'My account' : 'Sign in'} className="flex items-center gap-2 rounded-full p-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 sm:px-2.5">
             <UserIcon className="h-5 w-5" />
             <span className="hidden max-w-[110px] truncate sm:inline">{currentUser ? currentUser.full_name.split(' ')[0] : 'Sign in'}</span>
           </button>
@@ -104,7 +104,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <Heart className="h-5 w-5" />
             {wishlistCount > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">{wishlistCount}</span>}
           </button>
-          <button onClick={onOpenCart} aria-label={`Basket, ${count} items`} className="relative flex items-center gap-2 rounded-full bg-[#1a1712] px-3.5 py-2 text-xs font-bold text-white hover:bg-black">
+          <button onClick={onOpenCart} aria-label={`Basket, ${count} items`} className={`relative ${is3D ? 'hidden' : 'flex'} items-center gap-1.5 rounded-full bg-[#1a1712] px-3 py-2 text-xs font-bold text-white hover:bg-black sm:gap-2 sm:px-3.5`}>
             <ShoppingBag className="h-4 w-4" /> <span className="hidden sm:inline">Basket</span>
             <span className="rounded-full bg-[#c8a96a] px-1.5 text-[10px] font-black text-[#1a1712]">{count}</span>
           </button>

@@ -36,6 +36,7 @@ export const ProductViewer3D = forwardRef<ViewerHandle, ViewerProps>((props, ref
   const [auto, setAuto] = useState(true);
   const [showDims, setShowDims] = useState(false);
   const [showSpots, setShowSpots] = useState(showHotspots);
+  const labelsOn = useRef(false);
   const [glbState, setGlbState] = useState<'none' | 'loading' | 'ok' | 'error'>('none');
   const st = useRef<{
     renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera; controls: OrbitControls;
@@ -107,7 +108,8 @@ export const ProductViewer3D = forwardRef<ViewerHandle, ViewerProps>((props, ref
         s.demo.update(demoRef.current.t);
       }
       renderer.render(scene, camera);
-      if (frame++ % 2 === 0 && s.model) {
+      if (frame++ % 2 === 0 && s.model && (s.hotspots.length || labelsOn.current)) {
+        labelsOn.current = s.hotspots.length > 0;
         const rect = renderer.domElement.getBoundingClientRect();
         const next = s.hotspots.map((hs) => {
           v.copy(hs.position).applyMatrix4(s.model!.matrixWorld).project(camera);
@@ -268,7 +270,7 @@ export const ProductViewer3D = forwardRef<ViewerHandle, ViewerProps>((props, ref
           { icon: ZoomIn, label: 'Zoom in', fn: () => zoom(0.75) },
           { icon: ZoomOut, label: 'Zoom out', fn: () => zoom(1.33) },
           { icon: auto ? Pause : RotateCw, label: auto ? 'Stop rotating' : 'Rotate automatically', fn: () => setAuto(!auto) },
-          { icon: MapPin, label: showSpots ? 'Hide details' : 'Show details', fn: () => setShowSpots(!showSpots) },
+          ...(labels.length ? [{ icon: MapPin, label: showSpots ? 'Hide details' : 'Show details', fn: () => setShowSpots(!showSpots) }] : []),
           ...(dims && allowDims ? [{ icon: Ruler, label: showDims ? 'Hide dimensions' : 'Show dimensions', fn: () => setShowDims(!showDims) }] : []),
           { icon: Maximize, label: 'Full screen', fn: fullscreen },
         ].map((b) => (

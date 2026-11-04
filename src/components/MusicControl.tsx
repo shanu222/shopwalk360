@@ -40,7 +40,7 @@ export const MusicControl: React.FC<{ dark?: boolean }> = ({ dark }) => {
         {s.enabled ? <Bars on={on} /> : <VolumeX className="h-4 w-4" />}
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-[70] mt-2 w-72 overflow-hidden rounded-2xl border border-black/5 bg-[#16130f] text-white shadow-2xl">
+        <div className="fixed inset-x-3 top-16 z-[70] overflow-hidden sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72 rounded-2xl border border-black/5 bg-[#16130f] text-white shadow-2xl">
           <div className="flex items-center gap-3 border-b border-white/10 p-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#c8a96a] text-[#1a1712]"><Music2 className="h-4 w-4" /></span>
             <div className="min-w-0 flex-1">

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { mediaUrl } from '../../lib/api';
 import { 
   Sparkles, Plus, Search, Filter, ArrowRight, Award, 
   CheckCircle2, AlertCircle, X, Sliders, ExternalLink, TrendingUp, DollarSign
@@ -24,12 +25,12 @@ export const AdminSourcing: React.FC<AdminSourcingProps> = ({ categories }) => {
   const [sourceCity, setSourceCity] = useState('Lahore');
   const [sourceCountry, setSourceCountry] = useState('Pakistan');
   const [supplierName, setSupplierName] = useState('');
-  const [sampleCost, setSampleCost] = useState<number | ''>(1200);
-  const [wholesaleCost, setWholesaleCost] = useState<number | ''>(950);
+  const [sampleCost, setSampleCost] = useState<number | ''>('');
+  const [wholesaleCost, setWholesaleCost] = useState<number | ''>('');
   const [moq, setMoq] = useState<number | ''>(50);
-  const [estShipping, setEstShipping] = useState<number | ''>(100);
-  const [expectedSelling, setExpectedSelling] = useState<number | ''>(2800);
-  const [competitorPrices, setCompetitorPrices] = useState('PKR 3,200 on local sites');
+  const [estShipping, setEstShipping] = useState<number | ''>('');
+  const [expectedSelling, setExpectedSelling] = useState<number | ''>('');
+  const [competitorPrices, setCompetitorPrices] = useState('');
   const [demand, setDemand] = useState('High');
   const [competition, setCompetition] = useState('Moderate');
   const [qualityAssessment, setQualityAssessment] = useState('');
@@ -81,18 +82,18 @@ export const AdminSourcing: React.FC<AdminSourcingProps> = ({ categories }) => {
     setSourceCity('Lahore');
     setSourceCountry('Pakistan');
     setSupplierName('');
-    setSampleCost(1200);
-    setWholesaleCost(950);
+    setSampleCost('');
+    setWholesaleCost('');
     setMoq(50);
-    setEstShipping(100);
-    setExpectedSelling(2800);
-    setCompetitorPrices('PKR 3,200 on local sites');
-    setDemand('High');
+    setEstShipping('');
+    setExpectedSelling('');
+    setCompetitorPrices('');
+    setDemand('Medium');
     setCompetition('Moderate');
-    setQualityAssessment('Tested sample for finish, durability, and tolerances.');
+    setQualityAssessment('');
     setNotes('');
     setStatus('New Idea');
-    setImageUrl('https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=600&q=80');
+    setImageUrl('');
     setScoreQuality(85);
     setScoreProfit(85);
     setScoreDemand(80);
@@ -323,11 +324,11 @@ export const AdminSourcing: React.FC<AdminSourcingProps> = ({ categories }) => {
 
                 {/* Candidate Image & Title */}
                 <div className="flex items-start gap-3 mb-3">
-                  <img
-                    src={item.image_url || 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=400&q=80'}
-                    alt=""
-                    className="w-16 h-16 rounded-xl object-cover bg-slate-100 shrink-0"
-                  />
+                  {item.image_url ? (
+                    <img src={mediaUrl(item.image_url)} alt="" className="w-16 h-16 rounded-xl object-cover bg-slate-100 shrink-0" />
+                  ) : (
+                    <div className="flex w-16 h-16 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-[10px] font-semibold text-slate-400">No photo</div>
+                  )}
                   <div>
                     <h3 className="font-bold text-sm text-slate-900 leading-snug line-clamp-2">
                       {item.title}

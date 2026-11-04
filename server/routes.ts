@@ -394,7 +394,7 @@ apiRouter.post('/checkout', (req: Request, res: Response) => {
     const now = new Date();
     const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
     const randSuffix = Math.floor(1000 + Math.random() * 9000);
-    const order_number = `AC-${dateStr}-${randSuffix}`;
+    const order_number = `SW-${dateStr}-${randSuffix}`;
     const orderId = `ord_${Date.now()}`;
 
     // Payment status
@@ -500,7 +500,7 @@ apiRouter.get('/orders/track', (req: Request, res: Response) => {
 
     if (phone) {
       // Normalize phone digits
-      query += ' AND REPLACE(REPLACE(REPLACE(customer_phone, " ", ""), "-", ""), "+", "") LIKE ?';
+      query += " AND REPLACE(REPLACE(REPLACE(customer_phone, ' ', ''), '-', ''), '+', '') LIKE ?";
       const cleanPhone = `%${String(phone).replace(/[\s\-\+]/g, '').slice(-7)}%`;
       params.push(cleanPhone);
     }
@@ -639,7 +639,7 @@ apiRouter.post('/newsletter', (req: Request, res: Response) => {
     if (!exists) {
       db.prepare('INSERT INTO newsletter_subscribers (id, email) VALUES (?, ?)').run(`sub_${Date.now()}`, email);
     }
-    res.json({ success: true, message: 'Thank you for subscribing to Aura Retail updates!' });
+    res.json({ success: true, message: 'Thank you for subscribing to ShopWalk 360 updates!' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -875,7 +875,7 @@ apiRouter.post('/admin/products', requireAdmin, (req: Request, res: Response) =>
       typeof specifications === 'string' ? specifications : JSON.stringify(specifications || {}),
       Number(cost_price), Number(regular_price), discount_price ? Number(discount_price) : null,
       Number(stock_quantity || 0), Number(low_stock_threshold || 5),
-      brand || 'Aura Direct', is_featured ? 1 : 0, is_published !== false ? 1 : 0
+      brand || 'ShopWalk 360', is_featured ? 1 : 0, is_published !== false ? 1 : 0
     );
 
     // Add Images
@@ -1019,9 +1019,9 @@ apiRouter.put('/admin/suppliers/:id', requireAdmin, (req: Request, res: Response
         return_policy = ?, reliability_rating = ?, quality_rating = ?, notes = ?
       WHERE id = ?
     `).run(
-      name, business_name, contact_person, phone, whatsapp, email, city, country,
-      address, supplier_type, payment_terms, return_policy,
-      Number(reliability_rating), Number(quality_rating), notes, id
+      name, business_name, contact_person, phone, whatsapp || '', email || '', city, country || 'Pakistan',
+      address || '', supplier_type || 'Wholesaler', payment_terms || '', return_policy || '',
+      Number(reliability_rating || 4), Number(quality_rating || 4), notes || '', id
     );
 
     res.json({ success: true });
@@ -1135,7 +1135,7 @@ apiRouter.post('/admin/sourcing', requireAdmin, (req: Request, res: Response) =>
         total_score
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      id, title, category_id || null, description || '', image_url || '', source_city, source_country || 'Pakistan',
+      id, title, category_id || null, description || '', image_url || '', source_city || '', source_country || 'Pakistan',
       supplier_name || '', Number(sample_cost || 0), Number(wholesale_cost), Number(moq || 50), Number(est_shipping_cost || 0),
       Number(expected_selling_price), competitor_prices || '', estimated_demand || 'Medium', competition_level || 'Moderate',
       quality_assessment || '', notes || '', status || 'New Idea',
@@ -1192,7 +1192,7 @@ apiRouter.put('/admin/sourcing/:id', requireAdmin, (req: Request, res: Response)
         total_score = ?, updated_at = datetime('now')
       WHERE id = ?
     `).run(
-      title, category_id || null, description, image_url, source_city, source_country,
+      title, category_id || null, description || '', image_url || '', source_city || '', source_country || 'Pakistan',
       supplier_name, Number(sample_cost), Number(wholesale_cost), Number(moq), Number(est_shipping_cost),
       Number(expected_selling_price), competitor_prices, estimated_demand, competition_level,
       quality_assessment, notes, status,
@@ -1215,7 +1215,7 @@ apiRouter.post('/admin/sourcing/:id/promote-to-store', requireAdmin, (req: Reque
     }
 
     const prodId = `prod_${Date.now()}`;
-    const sku = `AC-${item.source_city.slice(0, 3).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
+    const sku = `SW-${(item.source_city || 'SRC').slice(0, 3).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
     const slug = item.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
 
     db.transaction(() => {
@@ -1225,7 +1225,7 @@ apiRouter.post('/admin/sourcing/:id/promote-to-store', requireAdmin, (req: Reque
           id, slug, name, sku, category_id, description, short_description, specifications,
           cost_price, regular_price, discount_price, stock_quantity, low_stock_threshold,
           brand, is_featured, is_published
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 25, 5, 'Aura Direct Sourced', 1, 1)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 25, 5, 'ShopWalk 360', 1, 1)
       `).run(
         prodId, slug, item.title, sku, item.category_id,
         item.description || item.notes || 'Carefully sourced and quality inspected product.',
@@ -1464,7 +1464,7 @@ apiRouter.put('/admin/orders/:id/status', requireAdmin, (req: Request, res: Resp
     const { id } = req.params;
     const { status, courier_partner, tracking_number } = req.body;
 
-    let updateQuery = 'UPDATE orders SET status = ?, updated_at = datetime("now")';
+    let updateQuery = "UPDATE orders SET status = ?, updated_at = datetime('now')";
     const params: any[] = [status];
 
     if (courier_partner) {
@@ -1476,10 +1476,10 @@ apiRouter.put('/admin/orders/:id/status', requireAdmin, (req: Request, res: Resp
       params.push(tracking_number);
     }
     if (status === 'Dispatched') {
-      updateQuery += ', dispatched_at = datetime("now")';
+      updateQuery += ", dispatched_at = datetime('now')";
     }
     if (status === 'Delivered') {
-      updateQuery += ', delivered_at = datetime("now"), payment_status = "Paid"';
+      updateQuery += ", delivered_at = datetime('now'), payment_status = 'Paid'";
     }
 
     updateQuery += ' WHERE id = ?';
@@ -1601,7 +1601,7 @@ apiRouter.post('/admin/expenses', requireAdmin, (req: Request, res: Response) =>
 // 9. Coupons CRUD
 apiRouter.get('/admin/coupons', requireAdmin, (req: Request, res: Response) => {
   try {
-    const coupons = db.prepare('SELECT * FROM coupons ORDER BY created_at DESC').all();
+    const coupons = db.prepare('SELECT * FROM coupons ORDER BY rowid DESC').all();
     res.json({ coupons });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1624,8 +1624,22 @@ apiRouter.post('/admin/coupons', requireAdmin, (req: Request, res: Response) => 
 
     res.json({ success: true, id });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    const msg = /UNIQUE/i.test(err.message) ? 'A coupon with this code already exists.' : err.message;
+    res.status(/UNIQUE/i.test(err.message) ? 400 : 500).json({ error: msg });
   }
+});
+
+// pause / resume a coupon
+apiRouter.put('/admin/coupons/:id', requireAdmin, (req: Request, res: Response) => {
+  const r = db.prepare('UPDATE coupons SET is_active = ? WHERE id = ?').run(req.body?.is_active ? 1 : 0, req.params.id);
+  if (!r.changes) return res.status(404).json({ error: 'Coupon not found' });
+  res.json({ success: true });
+});
+
+apiRouter.delete('/admin/coupons/:id', requireAdmin, (req: Request, res: Response) => {
+  const r = db.prepare('DELETE FROM coupons WHERE id = ?').run(req.params.id);
+  if (!r.changes) return res.status(404).json({ error: 'Coupon not found' });
+  res.json({ success: true });
 });
 
 // 10. Store Settings

@@ -29,7 +29,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
     { id: '3dstore', label: '3D Store & Shelves (ShopWalk)', icon: Layers, badge: '3D' },
     { id: 'music', label: 'Store Music', icon: Music },
     { id: 'products', label: 'Product Catalogue', icon: Package },
-    { id: 'sourcing', label: 'Sourcing Pipeline & AI Score', icon: Sparkles, badge: 'Sourcing' },
+    { id: 'sourcing', label: 'Sourcing Pipeline & Scores', icon: Sparkles, badge: 'Sourcing' },
     { id: 'suppliers', label: 'Suppliers & Comparison', icon: Building2 },
     { id: 'procurement', label: 'Purchase Orders (POs)', icon: FileText },
     { id: 'inventory', label: 'Inventory Ledger & Movements', icon: Truck },
@@ -47,6 +47,8 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
         <div className="flex items-center gap-2">
           <button
             onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
+            aria-label={mobileSidebarOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={mobileSidebarOpen}
             className="p-1 rounded-lg text-slate-400 hover:text-white"
           >
             {mobileSidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}

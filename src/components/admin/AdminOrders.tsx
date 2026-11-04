@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { downloadFromApi } from '../../lib/api';
 import { 
   Package, Search, Filter, Printer, Truck, Download, 
   CheckCircle2, Clock, Eye, AlertCircle, X, Check, RotateCcw
@@ -109,13 +110,14 @@ export const AdminOrders: React.FC = () => {
             Process incoming orders, assign Pakistani courier tracking numbers (TCS/Trax/Call Courier), and print invoices
           </p>
         </div>
-        <a
-          href="/api/admin/export/orders"
+        <button
+          type="button"
+          onClick={() => downloadFromApi('/api/admin/export/orders', `shopwalk360-orders-${new Date().toISOString().slice(0, 10)}.csv`).catch((e) => window.alert(e.message))}
           className="px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs transition"
         >
           <Download className="w-3.5 h-3.5" />
           Export Orders CSV
-        </a>
+        </button>
       </div>
 
       {/* Filter / Search Row */}
@@ -157,7 +159,7 @@ export const AdminOrders: React.FC = () => {
       {/* Orders Table */}
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-xs">
+          <table className="w-full min-w-[720px] divide-y divide-slate-200 text-xs">
             <thead className="bg-slate-50 font-bold text-slate-700">
               <tr>
                 <th className="px-4 py-3 text-left">Order & Date</th>

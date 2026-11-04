@@ -155,7 +155,7 @@ export const AdminProcurement: React.FC<AdminProcurementProps> = ({
       {/* PO Table */}
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-xs">
+          <table className="w-full min-w-[720px] divide-y divide-slate-200 text-xs">
             <thead className="bg-slate-50 font-bold text-slate-700">
               <tr>
                 <th className="px-4 py-3 text-left">PO Number</th>

@@ -85,7 +85,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             <ShoppingBag className="w-5 h-5 text-[#8a6a2f]" />
             <h2 className="text-base font-bold text-slate-900">Your Shopping Cart</h2>
             <span className="text-xs bg-slate-100 font-bold px-2 py-0.5 rounded-full text-slate-700">
-              {cart.reduce((s, i) => s + i.quantity, 0)} items
+              {(() => { const n = cart.reduce((s, i) => s + i.quantity, 0); return `${n} ${n === 1 ? "item" : "items"}`; })()}
             </span>
           </div>
           <button

@@ -69,6 +69,13 @@ export default function App() {
   // null = the shopper hasn't chosen yet → show the entrance page
   const [chosenMode, setChosenMode] = useState<'3d' | '2d' | null>(() => {
     try {
+      // ?store=3d / ?store=2d opens that store directly (used by the admin "Preview store" button)
+      const q = new URLSearchParams(window.location.search).get('store');
+      if (q === '3d' || q === '2d') {
+        sessionStorage.setItem('shopwalk360_mode', q);
+        window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+        return q;
+      }
       return (sessionStorage.getItem('shopwalk360_mode') as '3d' | '2d' | null) || null;
     } catch {
       return null;
@@ -287,12 +294,7 @@ export default function App() {
           <Admin3DStore
             products={products}
             onPreviewStore={() => {
-              try {
-                sessionStorage.setItem('shopwalk360_mode', '3d');
-              } catch {
-                /* ignore */
-              }
-              window.open('/', '_blank', 'noopener');
+              window.open('/?store=3d', '_blank', 'noopener');
             }}
           />
           </Suspense>

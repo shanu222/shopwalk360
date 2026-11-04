@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { mediaUrl } from '../../lib/api';
+import { mediaUrl, downloadFromApi } from '../../lib/api';
 import { 
   Plus, Search, Edit2, Trash2, Download, Eye, 
   Check, X, AlertCircle, Sparkles, Filter, Image as ImageIcon
@@ -58,7 +58,7 @@ export const AdminProducts: React.FC<AdminProductsProps> = ({ categories }) => {
   const openAddModal = () => {
     setEditingProduct(null);
     setFormName('');
-    setFormSku(`AC-SKU-${Math.floor(1000 + Math.random() * 9000)}`);
+    setFormSku(`SW-${Math.floor(1000 + Math.random() * 9000)}`);
     setFormCategory(categories[0]?.id || '');
     setFormCostPrice('');
     setFormRegularPrice('');
@@ -202,13 +202,14 @@ export const AdminProducts: React.FC<AdminProductsProps> = ({ categories }) => {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <a
-            href="/api/admin/export/products"
+          <button
+            type="button"
+            onClick={() => downloadFromApi('/api/admin/export/products', `shopwalk360-products-${new Date().toISOString().slice(0, 10)}.csv`).catch((e) => window.alert(e.message))}
             className="px-3 py-2 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs transition"
           >
             <Download className="w-3.5 h-3.5" />
             Export CSV
-          </a>
+          </button>
           <button
             onClick={openAddModal}
             className="px-4 py-2 bg-slate-900 hover:bg-blue-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition"
@@ -252,7 +253,7 @@ export const AdminProducts: React.FC<AdminProductsProps> = ({ categories }) => {
       {/* Products Table */}
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-xs">
+          <table className="w-full min-w-[720px] divide-y divide-slate-200 text-xs">
             <thead className="bg-slate-50 font-bold text-slate-700">
               <tr>
                 <th className="px-4 py-3 text-left">Product & SKU</th>
@@ -285,7 +286,7 @@ export const AdminProducts: React.FC<AdminProductsProps> = ({ categories }) => {
                             {p.name}
                           </span>
                           <span className="text-[10px] text-slate-500 font-mono">
-                            SKU: {p.sku} {p.brand ? `&middot; ${p.brand}` : ''}
+                            SKU: {p.sku}{p.brand ? ` · ${p.brand}` : ''}
                           </span>
                         </div>
                       </div>

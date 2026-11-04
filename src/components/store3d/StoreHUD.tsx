@@ -315,7 +315,7 @@ export const StoreHUD: React.FC<Props> = (p) => {
 
       {/* PANELS */}
       {panel && panel !== 'search' && (
-        <div className={`pointer-events-auto absolute bottom-[9.5rem] left-3 right-14 z-40 flex h-[42vh] flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#171513]/95 shadow-2xl backdrop-blur-xl md:inset-x-auto md:bottom-6 md:left-[76px] md:top-20 md:h-auto lg:left-[170px] ${panel === 'map' ? 'md:right-6 lg:right-auto lg:w-[min(1100px,calc(100vw-200px))]' : 'md:w-[520px]'}`}>
+        <div className={`pointer-events-auto absolute bottom-[9.5rem] left-3 right-14 z-40 flex ${panel === 'map' ? 'top-[4.5rem] h-auto' : 'h-[42vh]'} flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#171513]/95 shadow-2xl backdrop-blur-xl md:inset-x-auto md:bottom-6 md:left-[76px] md:top-20 md:h-auto lg:left-[170px] ${panel === 'map' ? 'md:right-6 lg:right-auto lg:w-[min(1100px,calc(100vw-200px))]' : 'md:w-[520px]'}`}>
           <div className="flex items-center justify-between border-b border-white/10 px-5 py-3.5">
             <div className="text-sm font-bold">
               {panel === 'directory' && 'Department directory'}
@@ -348,7 +348,7 @@ export const StoreHUD: React.FC<Props> = (p) => {
             )}
             {panel === 'map' && (
               <div className="flex h-full min-h-0 flex-col gap-3">
-                <div className="relative flex min-h-0 flex-1 flex-col rounded-2xl bg-[#0f0e0c] p-2 sm:p-3">
+                <div className="relative flex min-h-[12rem] flex-1 flex-col rounded-2xl bg-[#0f0e0c] p-2 sm:p-3">
                   <div className="flex min-h-0 flex-1 items-center justify-center">
                     <StoreMap
                       departments={p.departments}
@@ -381,7 +381,7 @@ export const StoreHUD: React.FC<Props> = (p) => {
                     aria-label="Find a department"
                     className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:border-[#c8a96a] focus:outline-none sm:w-52"
                   />
-                  <div className="flex max-h-24 flex-1 flex-wrap gap-1.5 overflow-y-auto">
+                  <div className="flex max-h-[4.5rem] flex-1 flex-wrap gap-1.5 overflow-y-auto sm:max-h-24">
                     {sortedDepts
                       .filter((d) => !mapQuery || d.name.toLowerCase().includes(mapQuery.toLowerCase()))
                       .map((d) => (

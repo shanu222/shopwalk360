@@ -151,7 +151,7 @@ export const AdminFinancials: React.FC = () => {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-xs">
+          <table className="w-full min-w-[720px] divide-y divide-slate-200 text-xs">
             <thead className="bg-slate-50 font-bold text-slate-700">
               <tr>
                 <th className="px-4 py-3 text-left">SKU & Item</th>
