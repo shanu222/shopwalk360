@@ -5,6 +5,7 @@ import { buildStore, BuiltStore, InteractiveTarget, VideoScreen, PickUnit } from
 import { skyTexture, setMaxAnisotropy, contactShadowTexture } from '../builder/materials';
 import { createHumanAvatar, AvatarRig, normaliseAvatarConfig } from '../avatar/AvatarModel';
 import { createGlbAvatar, getGLTFLoader } from '../avatar/glbAvatar';
+import { isTouchDevice, setTextureBudget, shrinkObjectTextures, shrinkTexture } from './textureBudget';
 import { NavGrid } from '../nav/pathfinding';
 import { STORE, Rect, zoneAt, Zone, roomForSlot } from '../layout/storeLayout';
 import { AvatarConfig, StoreLayoutV2 } from '../../../types';
@@ -27,6 +28,8 @@ export interface EngineEvents {
   onArrive?: (id: string | null) => void;
   onEntered?: () => void;
   onContextLost?: () => void;
+  /** the browser gave the 3D view back (it redraws by itself) */
+  onContextRestored?: () => void;
   onQualityDrop?: (q: Quality) => void;
   onAvatarError?: (msg: string) => void;
   onRouteChange?: (route: { x: number; z: number }[] | null) => void;
@@ -74,6 +77,8 @@ export class StoreEngine {
   private disposed = false;
   private paused = false;
   quality: Quality;
+  /** phone or tablet (memory-saving rules apply) */
+  private touch = false;
   cameraMode: CameraMode = 'third_person';
   state: EngineState = 'loading';
   inputEnabled = true;
@@ -216,6 +221,10 @@ export class StoreEngine {
     this.container = container;
     this.events = events;
     this.quality = quality;
+    // phones and tablets get far less graphics memory than computers: store pictures smaller there
+    this.touch = isTouchDevice();
+    const phone = this.touch && Math.min(screen.width || 0, screen.height || 0) < 600;
+    setTextureBudget(!this.touch ? null : quality === 'low' || phone ? { scale: 0.4, maxDim: 768 } : { scale: 0.5, maxDim: 1024 });
     this.reducedMotion = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     const w = container.clientWidth || window.innerWidth;
@@ -278,6 +287,7 @@ export class StoreEngine {
 
     this.bindInput();
     this.renderer.domElement.addEventListener('webglcontextlost', this.onContextLost);
+    this.renderer.domElement.addEventListener('webglcontextrestored', this.onContextRestored);
     this.loop();
   }
 
@@ -303,6 +313,7 @@ export class StoreEngine {
       return;
     }
     this.store = built;
+    shrinkObjectTextures(built.root); // phones only (no-op on computers)
     this.scene.add(built.root);
     this.nav = new NavGrid(built.colliders);
     await this.setAvatarConfig(avatarConfig);
@@ -333,6 +344,7 @@ export class StoreEngine {
       let source: THREE.Object3D;
       try {
         source = (await loader.loadAsync(screenMediaUrl(url))).scene;
+        shrinkObjectTextures(source);
       } catch {
         // the model could not be loaded: show the product as a box with its photo instead of an empty shelf
         if (this.disposed || this.store !== store) return;
@@ -389,6 +401,7 @@ export class StoreEngine {
       loader.setCrossOrigin('anonymous');
       loader.load(screenMediaUrl(sh.primary_image), (tex) => {
         tex.colorSpace = THREE.SRGBColorSpace;
+        shrinkTexture(tex);
         front.map = tex;
         front.needsUpdate = true;
       });
@@ -564,6 +577,7 @@ export class StoreEngine {
           mediaUrl(opts.imageUrl),
           (tex) => {
             tex.colorSpace = THREE.SRGBColorSpace;
+            shrinkTexture(tex);
             front.map = tex;
             front.needsUpdate = true;
           },
@@ -1000,8 +1014,12 @@ export class StoreEngine {
   };
 
   private onContextLost = (e: Event) => {
-    e.preventDefault();
+    e.preventDefault(); // lets the browser give the view back later
     this.events.onContextLost?.();
+  };
+
+  private onContextRestored = () => {
+    this.events.onContextRestored?.();
   };
 
   private handleClick(cx: number, cy: number) {
@@ -1313,8 +1331,9 @@ export class StoreEngine {
    */
   private updateVideos() {
     if (!this.store) return;
-    const cap = this.quality === 'high' ? 4 : this.quality === 'balanced' ? 3 : 2;
-    const warm = this.quality === 'low' ? 2 : 3;
+    // phones decode one clip at a time (each video holds its own graphics memory)
+    const cap = this.touch ? 1 : this.quality === 'high' ? 4 : this.quality === 'balanced' ? 3 : 2;
+    const warm = this.touch ? 1 : this.quality === 'low' ? 2 : 3;
     const now = performance.now();
     this.camera.updateMatrixWorld();
     this.videoProj.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);

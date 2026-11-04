@@ -32,6 +32,7 @@ export function createLedBoard(opts: { title: string; lines: string[]; accent?: 
   const ctx = canvas.getContext('2d')!;
   ctx.setTransform(k, 0, 0, k, 0, 0);
   const texture = new THREE.CanvasTexture(canvas);
+  texture.userData.dynamic = true; // redrawn every frame
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.generateMipmaps = false;
   texture.minFilter = THREE.LinearFilter;

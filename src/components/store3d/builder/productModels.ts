@@ -261,6 +261,7 @@ function tireInflator(color: string): ProductModel {
   screenCanvas.height = 96;
   const sctx = screenCanvas.getContext('2d')!;
   const screenTex = new THREE.CanvasTexture(screenCanvas);
+  screenTex.userData.dynamic = true;
   const draw = (val: number) => {
     sctx.fillStyle = '#0b1410';
     sctx.fillRect(0, 0, 128, 96);

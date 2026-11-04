@@ -152,7 +152,18 @@ export default function ShopWalkExperience(props: Props) {
           },
           onArrive: () => setWalking(false),
           onRouteChange: (r) => setRoute(r),
-          onContextLost: () => setContextLost(true),
+          onContextLost: () => {
+            setContextLost(true);
+            // the device ran out of graphics memory: come back in battery-saver graphics
+            if (isTouch) {
+              try {
+                localStorage.setItem(QUALITY_KEY, 'low');
+              } catch {
+                /* ignore */
+              }
+            }
+          },
+          onContextRestored: () => setContextLost(false),
           onQualityDrop: (q) => {
             setQualityState(q);
             showToast(`Graphics set to ${q} so the store runs smoothly on this device.`);
@@ -537,7 +548,7 @@ export default function ShopWalkExperience(props: Props) {
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 p-6 text-white">
           <div className="max-w-sm space-y-4 text-center">
             <h2 className="text-lg font-bold">{contextLost ? 'The 3D view was paused by your device' : 'The virtual store could not load'}</h2>
-            <p className="text-sm text-white/70">{contextLost ? 'This can happen when the device runs low on graphics memory.' : loadError}</p>
+            <p className="text-sm text-white/70">{contextLost ? (isTouch ? 'This can happen when the device runs low on graphics memory. Reload to continue with lighter graphics.' : 'This can happen when the device runs low on graphics memory.') : loadError}</p>
             <div className="flex justify-center gap-2">
               <button onClick={() => location.reload()} className="flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2.5 text-sm font-semibold"><RefreshCw className="h-4 w-4" /> Reload</button>
               <button onClick={leaveTo2D} className="flex items-center gap-2 rounded-xl bg-[#c8a96a] px-4 py-2.5 text-sm font-bold text-[#1a1712]"><Store className="h-4 w-4" /> Online store</button>

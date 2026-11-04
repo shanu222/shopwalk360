@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { shrinkTexture } from '../engine/textureBudget';
 
 /* ------------------------------------------------------------------------------------------------
  * Deterministic random so the store looks identical on every visit
@@ -34,6 +35,7 @@ function toTexture(c: HTMLCanvasElement, srgb = true) {
   t.anisotropy = maxAnisotropy;
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   t.needsUpdate = true;
+  shrinkTexture(t);
   return t;
 }
 

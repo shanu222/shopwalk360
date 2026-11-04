@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { StoreDepartment, PromoScreen } from '../../../types';
 import { formatDeptNumber } from '../layout/storeLayout';
+import { shrinkTexture } from '../engine/textureBudget';
 
 export const FONT = '"Plus Jakarta Sans", "Helvetica Neue", Arial, sans-serif';
 
@@ -16,6 +17,7 @@ function tex(c: HTMLCanvasElement) {
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 8;
   t.needsUpdate = true;
+  shrinkTexture(t); // phones store it smaller (see textureBudget)
   return t;
 }
 
@@ -623,7 +625,9 @@ function drawImageLater(t: THREE.CanvasTexture, url: string | undefined, rect: [
   img.onload = () => {
     const c = t.image as HTMLCanvasElement;
     const ctx = c.getContext('2d')!;
-    const [x, y, w, h] = rect;
+    // on phones the picture is stored smaller than it was drawn: scale the box to match
+    const k = t.userData?.origW ? c.width / t.userData.origW : 1;
+    const [x, y, w, h] = rect.map((v) => v * k) as [number, number, number, number];
     const s = Math.max(w / img.width, h / img.height);
     const iw = img.width * s;
     const ih = img.height * s;
