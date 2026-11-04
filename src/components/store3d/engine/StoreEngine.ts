@@ -12,6 +12,9 @@ import { storeAudio } from './audio';
 
 export type Quality = 'high' | 'balanced' | 'low';
 export type CameraMode = 'third_person' | 'first_person';
+export type WalkPace = 'slow' | 'normal' | 'fast';
+/** walking speed multipliers (1 = a gentle stroll, about 1.55 m/s with the keys) */
+export const WALK_PACE: Record<WalkPace, number> = { slow: 1, normal: 1.35, fast: 1.8 };
 export type EngineState = 'loading' | 'outside' | 'entering' | 'inside';
 
 export interface EngineEvents {
@@ -91,6 +94,7 @@ export class StoreEngine {
   // navigation
   private path: { x: number; z: number }[] = [];
   private pathSpeed = 2.0;
+  private pace = WALK_PACE.normal;
   private pathTarget: { id: string | null; face?: THREE.Vector3; interact?: InteractiveTarget } | null = null;
   private routeLine: THREE.Mesh | null = null;
   private beacon: THREE.Group;
@@ -400,6 +404,11 @@ export class StoreEngine {
     this.renderer.setPixelRatio(this.quality === 'high' ? Math.min(dpr, 2) : this.quality === 'balanced' ? Math.min(dpr, 1.25) : Math.min(dpr, 0.85));
   }
 
+  /** How fast the shopper walks (keys, joystick and click-to-walk alike). */
+  setWalkPace(p: WalkPace) {
+    this.pace = WALK_PACE[p] || WALK_PACE.normal;
+  }
+
   setCameraMode(m: CameraMode) {
     this.cameraMode = m;
     this.avatar?.setVisible(m === 'third_person');
@@ -703,7 +712,7 @@ export class StoreEngine {
     if (!path || !path.length) return false;
     this.path = path;
     const dist = path.reduce((acc, p, i) => acc + Math.hypot(p.x - (i ? path[i - 1].x : this.pos.x), p.z - (i ? path[i - 1].z : this.pos.z)), 0);
-    this.pathSpeed = opts.speed ?? (dist > 18 ? 2.4 : 1.6);
+    this.pathSpeed = (opts.speed ?? (dist > 18 ? 2.4 : 1.6)) * this.pace;
     this.pathTarget = { id: opts.id ?? null, face: opts.face, interact: opts.interact };
     this.guidePersistent = !!opts.guide;
     this.drawRoute([{ x: this.pos.x, z: this.pos.z }, ...path]);
@@ -1061,7 +1070,7 @@ export class StoreEngine {
       const ml = Math.hypot(mx, mz) || 1;
       mx /= ml;
       mz /= ml;
-      const speed = (this.keys.Shift ? 2.7 : 1.55) * len;
+      const speed = (this.keys.Shift ? 2.7 : 1.55) * this.pace * len;
       moved = this.moveWithCollision(mx * speed * dt, mz * speed * dt);
       wantYaw = Math.atan2(mx, mz);
       if (this.cameraMode === 'first_person') wantYaw = this.camYaw;

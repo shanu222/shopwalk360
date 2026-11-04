@@ -1,0 +1,8 @@
+pillow
+numpy
+scipy
+opencv-python-headless
+mapbox_earcut
+# optional: AI background removal for busy backgrounds (downloads a 176 MB model once)
+rembg
+onnxruntime

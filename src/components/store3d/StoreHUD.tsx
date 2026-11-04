@@ -8,7 +8,7 @@ import { InteractiveTarget } from './builder/storeBuilder';
 import { StoreMap } from './StoreMap';
 import { Joystick } from './Joystick';
 import { Zone, formatDeptNumber } from './layout/storeLayout';
-import type { Quality, CameraMode } from './engine/StoreEngine';
+import type { Quality, CameraMode, WalkPace } from './engine/StoreEngine';
 
 export interface SearchHit {
   shelf: StoreShelf;
@@ -48,6 +48,8 @@ interface Props {
   onOpenCart: () => void;
   onCheckout: () => void;
   onQuality: (q: Quality) => void;
+  walkPace: WalkPace;
+  onWalkPace: (p: WalkPace) => void;
   onMute: () => void;
   onSwitch2D: () => void;
   onJoystick: (x: number, y: number) => void;
@@ -437,6 +439,15 @@ export const StoreHUD: React.FC<Props> = (p) => {
                       <button key={q} onClick={() => p.onQuality(q)} aria-pressed={p.quality === q} className={`rounded-xl py-2.5 text-xs font-semibold capitalize ${p.quality === q ? 'bg-[#c8a96a] text-[#1a1712]' : 'bg-white/10'}`}>{q === 'low' ? 'Low (battery saver)' : q}</button>
                     ))}
                   </div>
+                </div>
+                <div>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/50">Walking speed</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['slow', 'normal', 'fast'] as WalkPace[]).map((w) => (
+                      <button key={w} onClick={() => p.onWalkPace(w)} aria-pressed={p.walkPace === w} className={`rounded-xl py-2.5 text-xs font-semibold capitalize ${p.walkPace === w ? 'bg-[#c8a96a] text-[#1a1712]' : 'bg-white/10'}`}>{w === 'slow' ? 'Slow pace' : w === 'fast' ? 'Fast pace' : 'Normal'}</button>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-white/50">Hold Shift on a keyboard to run.</p>
                 </div>
                 <button onClick={p.onToggleOthers} className="flex w-full items-center justify-between rounded-xl bg-white/[0.05] px-4 py-3">
                   <span className="flex items-center gap-2"><Users className="h-4 w-4" /> Show other shoppers</span>

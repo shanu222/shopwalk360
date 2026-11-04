@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PresenceClient, RemoteShopper } from '../../lib/presence';
 import { MonitorX, Store, RefreshCw } from 'lucide-react';
 import { AvatarConfig, CartItem, ExperienceIntegrations, Product, StoreLayoutV2, StoreShelf, TryOnOverride } from '../../types';
-import { StoreEngine, Quality, CameraMode, detectWebGL, suggestQuality } from './engine/StoreEngine';
+import { StoreEngine, Quality, CameraMode, WalkPace, detectWebGL, suggestQuality } from './engine/StoreEngine';
 import { InteractiveTarget } from './builder/storeBuilder';
 import { Zone } from './layout/storeLayout';
 import { EntranceGate } from './EntranceGate';
@@ -60,6 +60,14 @@ export default function ShopWalkExperience(props: Props) {
       return (localStorage.getItem(QUALITY_KEY) as Quality) || suggestQuality();
     } catch {
       return suggestQuality();
+    }
+  });
+  const [walkPace, setWalkPace] = useState<WalkPace>(() => {
+    try {
+      const v = localStorage.getItem('shopwalk360_pace');
+      return v === 'slow' || v === 'fast' ? v : 'normal';
+    } catch {
+      return 'normal';
     }
   });
   const [nearest, setNearest] = useState<InteractiveTarget | null>(null);
@@ -241,6 +249,14 @@ export default function ShopWalkExperience(props: Props) {
   useEffect(() => {
     storeAudio.muted = muted;
   }, [muted]);
+  useEffect(() => {
+    engine.current?.setWalkPace(walkPace);
+    try {
+      localStorage.setItem('shopwalk360_pace', walkPace);
+    } catch {
+      /* ignore */
+    }
+  }, [walkPace, ready]);
 
   // keyboard shortcut: V toggles camera
   useEffect(() => {
@@ -482,6 +498,8 @@ export default function ShopWalkExperience(props: Props) {
           onOpenCart={onOpenCart}
           onCheckout={onOpenCheckout}
           onQuality={setQualityState}
+          walkPace={walkPace}
+          onWalkPace={setWalkPace}
           onMute={() => setMuted((m) => !m)}
           onSwitch2D={leaveTo2D}
           onJoystick={(x, y) => engine.current?.setJoystick(x, y)}

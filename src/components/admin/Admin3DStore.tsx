@@ -700,7 +700,7 @@ function ProductTab({ products, departments, shelves, call, reload, flash }: { p
               <div className="mb-1 font-bold text-slate-800">How this product looks on the shelves — pick one:</div>
               <div>1. <b>Easiest:</b> just add a product photo (below). It is shown as a boxed product carrying the photo.</div>
               <div>2. <b>Built-in 3D shape:</b> choose a “Generated preview model” that matches the product.</div>
-              <div>3. <b>Real 3D model:</b> upload a .glb file (export it from Blender, SketchUp, Polycam or any 3D app). It replaces the other two.</div>
+              <div>3. <b>Real 3D model:</b> upload a .glb file. No 3D software needed — send a photo of the product to Claude and it returns a .glb made from the photo (round products like bottles become a round body, others a solid cut-out or a box). It replaces the other two.</div>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               {(['w', 'h', 'd'] as const).map((k) => (
