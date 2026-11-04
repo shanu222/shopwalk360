@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { initDatabase } from './server/db.js';
 import { apiRouter, getActiveUserId } from './server/routes.js';
 import { attachPresence } from './server/presence.js';
-import { store3dRouter, migrateStoreExperienceV2, bindSession, serveUploads, seedMusicLibrary, serveMusicLibrary } from './server/store3dV2.js';
+import { store3dRouter, migrateStoreExperienceV2, bindSession, serveUploads, seedMusicLibrary, serveMusicLibrary, optimiseStoredVideos } from './server/store3dV2.js';
 import { authMiddleware } from './server/auth.js';
 import { bootstrapAdmin, ensureR2Cors, ensureStoreContact, removeDemoData } from './server/production.js';
 
@@ -74,6 +74,10 @@ async function startServer() {
 
   const server = app.listen(PORT, '0.0.0.0', () => console.log(`ShopWalk 360 API listening on :${PORT}`));
   attachPresence(server, originAllowed);
+  // in the background, once the server is up: make older screen videos start fast
+  setTimeout(() => {
+    optimiseStoredVideos().catch((e) => console.warn('Video optimisation stopped:', e?.message || e));
+  }, 15000);
 }
 
 startServer().catch((err) => {

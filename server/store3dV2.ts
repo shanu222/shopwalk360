@@ -13,6 +13,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { db } from './db.js';
 import { openR2Object, r2Enabled, putToR2 } from './production.js';
+import { faststart, needsFaststart } from './faststart.js';
 
 export const UPLOAD_ROOT = path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads'));
 
@@ -878,23 +879,100 @@ export function serveMusicLibrary(app: express.Express) {
 }
 
 // The public R2 address does not send the headers a 3D screen needs, so videos are read through here.
+//
+// The first 2 MB of each video is kept in memory, so the start of a clip (the part a screen needs
+// before it can show its first frame) is answered at once instead of waiting on Cloudflare.
+const HEAD_BYTES = 2 * 1024 * 1024;
+const HEAD_CACHE_MAX = 96 * 1024 * 1024;
+const headCache = new Map<string, { buf: Buffer; total: number; type: string }>();
+const headLoading = new Map<string, Promise<{ buf: Buffer; total: number; type: string } | null>>();
+let headCacheBytes = 0;
+
+async function readAll(stream: NodeJS.ReadableStream) {
+  const chunks: Buffer[] = [];
+  for await (const c of stream as any) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+  return Buffer.concat(chunks);
+}
+
+function loadHead(key: string) {
+  const hit = headCache.get(key);
+  if (hit) {
+    // most recently used goes to the back of the eviction queue
+    headCache.delete(key);
+    headCache.set(key, hit);
+    return Promise.resolve(hit);
+  }
+  let p = headLoading.get(key);
+  if (!p) {
+    p = (async () => {
+      const file = await openR2Object(key, `bytes=0-${HEAD_BYTES - 1}`);
+      if (!file) return null;
+      const buf = await readAll(file.stream);
+      const total = Number(String(file.contentRange || '').split('/')[1]) || buf.length;
+      const entry = { buf, total, type: file.contentType };
+      headCache.set(key, entry);
+      headCacheBytes += buf.length;
+      for (const [k, v] of headCache) {
+        if (headCacheBytes <= HEAD_CACHE_MAX) break;
+        headCache.delete(k);
+        headCacheBytes -= v.buf.length;
+      }
+      return entry;
+    })().finally(() => headLoading.delete(key));
+    headLoading.set(key, p);
+  }
+  return p;
+}
+
+function parseRange(range: string | undefined, total: number): [number, number] | null {
+  const m = /^bytes=(\d*)-(\d*)$/.exec(range || '');
+  if (!m || (m[1] === '' && m[2] === '')) return null;
+  if (m[1] === '') {
+    const n = Math.min(total, Number(m[2]));
+    return [total - n, total - 1];
+  }
+  const start = Number(m[1]);
+  const end = m[2] === '' ? total - 1 : Math.min(total - 1, Number(m[2]));
+  return start <= end ? [start, end] : null;
+}
+
 store3dRouter.get(/^\/media\/(.+)$/, async (req, res) => {
   const key = decodeURIComponent(String(req.params[0] || ''));
   const range = typeof req.headers.range === 'string' ? req.headers.range : undefined;
-  try {
-    const file = await openR2Object(key, range);
-    if (!file) return res.status(404).end();
+  const common = () => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.setHeader('Accept-Ranges', 'bytes');
-    res.setHeader('Content-Type', file.contentType);
     res.setHeader('Cache-Control', 'public, max-age=86400');
+  };
+  try {
+    // answer requests for the start of a video from memory
+    if (key.startsWith('video/') && range && /^bytes=\d+-/.test(range)) {
+      const head = await loadHead(key);
+      if (head) {
+        const r = parseRange(range, head.total);
+        if (r && r[0] < head.buf.length) {
+          const end = Math.min(r[1], head.buf.length - 1);
+          common();
+          res.setHeader('Content-Type', head.type);
+          res.setHeader('Content-Length', String(end - r[0] + 1));
+          res.status(206);
+          res.setHeader('Content-Range', `bytes ${r[0]}-${end}/${head.total}`);
+          return res.end(head.buf.subarray(r[0], end + 1));
+        }
+      }
+    }
+    const file = await openR2Object(key, range);
+    if (!file) return res.status(404).end();
+    common();
+    res.setHeader('Content-Type', file.contentType);
     if (file.contentLength != null) res.setHeader('Content-Length', String(file.contentLength));
     if (file.contentRange) {
       res.status(206);
       res.setHeader('Content-Range', file.contentRange);
     }
     file.stream.on('error', () => res.destroy());
+    req.on('close', () => (file.stream as any).destroy?.());
     file.stream.pipe(res);
   } catch (err: any) {
     const code = err?.$metadata?.httpStatusCode;
@@ -903,6 +981,100 @@ store3dRouter.get(/^\/media\/(.+)$/, async (req, res) => {
     if (!res.headersSent) res.status(502).end();
   }
 });
+
+// ---------------- Existing videos: make them start fast ----------------
+const VIDEO_COLUMNS: [string, string][] = [
+  ['store_promo_screens', 'video_url'],
+  ['store_led_screens', 'video_url'],
+  ['store_departments', 'info_video_url'],
+  ['products', 'demo_video_url'],
+  ['store_shelves', 'demo_video_url'],
+];
+
+function videoColumns() {
+  return VIDEO_COLUMNS.filter(([t, c]) => {
+    try {
+      return (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).some((x) => x.name === c);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Videos uploaded before this change may have their index at the end, which makes them slow to
+ * start. Once, in the background after start-up, each one is checked and, if needed, rewritten as a
+ * NEW file (a new name, so no browser can mix old cached pieces with the new file) and every
+ * reference to it is updated. Finished files are remembered so they are never checked again.
+ */
+export async function optimiseStoredVideos() {
+  const cols = videoColumns();
+  const urls = new Set<string>();
+  for (const [t, c] of cols) {
+    for (const r of db.prepare(`SELECT DISTINCT ${c} AS u FROM ${t} WHERE ${c} IS NOT NULL AND ${c} != ''`).all() as { u: string }[]) urls.add(r.u);
+  }
+  const publicBase = (process.env.R2_PUBLIC_URL || '').replace(/\/$/, '');
+  for (const url of urls) {
+    if (getSetting(`faststart:${url}`)) continue;
+    try {
+      let buf: Buffer | null = null;
+      let save: ((b: Buffer) => Promise<string>) | null = null;
+      const ext = (url.split('?')[0].split('.').pop() || '').toLowerCase();
+      if (!['mp4', 'm4v'].includes(ext)) {
+        setSetting(`faststart:${url}`, 'skip');
+        continue;
+      }
+      const r2Key = publicBase && url.startsWith(publicBase + '/') ? url.slice(publicBase.length + 1) : url.match(/^https?:\/\/[^/]+\.r2\.dev\/(video\/[^?#]+)/i)?.[1];
+      const diskName = url.match(/\/uploads\/video\/([A-Za-z0-9._-]+)$/)?.[1];
+      if (r2Key && r2Enabled()) {
+        const head = await openR2Object(r2Key, 'bytes=0-262143');
+        if (!head) continue;
+        const need = needsFaststart(await readAll(head.stream));
+        if (!need) {
+          setSetting(`faststart:${url}`, 'ok');
+          continue;
+        }
+        const size = Number(String(head.contentRange || '').split('/')[1]) || 0;
+        if (size > 160 * 1024 * 1024) {
+          console.warn(`Video ${r2Key} is too large to optimise on this server; re-export it with "fast start" for quicker playback.`);
+          setSetting(`faststart:${url}`, 'too-large');
+          continue;
+        }
+        const full = await openR2Object(r2Key);
+        if (!full) continue;
+        buf = await readAll(full.stream);
+        save = (b) => putToR2(`video/${Date.now()}_${crypto.randomBytes(5).toString('hex')}.${ext}`, b, ext === 'm4v' ? 'video/mp4' : 'video/mp4');
+      } else if (diskName) {
+        const file = path.join(UPLOAD_ROOT, 'video', diskName);
+        if (!fs.existsSync(file)) continue;
+        buf = fs.readFileSync(file);
+        save = async (b) => {
+          const name = `${Date.now()}_${crypto.randomBytes(5).toString('hex')}.${ext}`;
+          fs.writeFileSync(path.join(UPLOAD_ROOT, 'video', name), b);
+          return url.replace(/[^/]+$/, name);
+        };
+      } else {
+        setSetting(`faststart:${url}`, 'skip');
+        continue;
+      }
+      const fixed = buf && faststart(buf);
+      if (!fixed || !save) {
+        setSetting(`faststart:${url}`, 'ok');
+        continue;
+      }
+      const newUrl = await save(fixed);
+      const tx = db.transaction(() => {
+        for (const [t, c] of cols) db.prepare(`UPDATE ${t} SET ${c} = ? WHERE ${c} = ?`).run(newUrl, url);
+        setSetting(`faststart:${url}`, 'moved');
+        setSetting(`faststart:${newUrl}`, 'ok');
+      });
+      tx();
+      console.log(`Optimised a screen video for fast start: ${url} -> ${newUrl}`);
+    } catch (err: any) {
+      console.warn(`Could not optimise video ${url}:`, err?.message || err);
+    }
+  }
+}
 
 // ---------------- Admin: media uploads ----------------
 const UPLOAD_RULES: Record<string, { exts: string[]; max: number; check: (b: Buffer) => boolean }> = {
@@ -945,18 +1117,30 @@ store3dRouter.post(
     if (kind === 'video' && process.env.NODE_ENV === 'production' && !r2Enabled()) {
       return res.status(503).json({ error: 'Cloudflare storage is not configured, so this video was not saved. Add the R2 settings on the server, then upload the video again.' });
     }
+    // MP4s are rearranged so their index comes first and they start playing straight away
+    let data = body;
+    if (kind === 'video' && (ext === 'mp4' || ext === 'm4v')) {
+      try {
+        data = faststart(body) || body;
+      } catch {
+        data = body;
+      }
+    }
     const name = `${Date.now()}_${crypto.randomBytes(5).toString('hex')}.${ext}`;
     const types: Record<string, string> = { mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', glb: 'model/gltf-binary', vtt: 'text/vtt', mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', ogg: 'audio/ogg', oga: 'audio/ogg', wav: 'audio/wav' };
     if (r2Enabled()) {
       // Cloudflare R2 (persistent, served from your R2 public URL / custom domain)
-      putToR2(`${kind}/${name}`, body, types[ext] || 'application/octet-stream')
-        .then((url) => res.json({ success: true, url, bytes: body.length, storage: 'r2' }))
+      putToR2(`${kind}/${name}`, data, types[ext] || 'application/octet-stream')
+        .then((url) => {
+          if (kind === 'video') setSetting(`faststart:${url}`, 'ok');
+          res.json({ success: true, url, bytes: data.length, storage: 'r2' });
+        })
         .catch((e) => res.status(502).json({ error: `Cloudflare R2 upload failed: ${e.message}` }));
       return;
     }
     const dir = path.join(UPLOAD_ROOT, kind);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, name), body);
+    fs.writeFileSync(path.join(dir, name), data);
     // absolute URL so the separately hosted frontend can load it
     const base = (process.env.PUBLIC_API_URL || '').replace(/\/$/, '');
     res.json({ success: true, url: `${base}/uploads/${kind}/${name}`, bytes: body.length, storage: 'disk' });

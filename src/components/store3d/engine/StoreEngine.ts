@@ -110,7 +110,9 @@ export class StoreEngine {
   private videos = new Map<string, ScreenPlayer>();
   private videoFrustum = new THREE.Frustum();
   private videoProj = new THREE.Matrix4();
-  private videoGaveUp = new Set<string>();
+  /** screens whose video failed: when to try again, and how often it has failed */
+  private videoGaveUp = new Map<string, { until: number; tries: number }>();
+  private videoWanted = new Map<string, number>();
   private fpsSamples: number[] = [];
   private lastQualityCheck = 0;
   private raycaster = new THREE.Raycaster();
@@ -1137,45 +1139,86 @@ export class StoreEngine {
    * Every browser stutters when it decodes a dozen clips together, so the rest wait on their LED
    * picture, and screens far away let go of their video entirely to free memory.
    */
+  /**
+   * Which screens play, which get ready, and which let go.
+   *
+   * - Play: the nearest screens the shopper can see (2–4 by graphics setting). Decoding a dozen
+   *   clips at once makes any browser stutter.
+   * - Ready: the next few screens the shopper is approaching are loaded in advance (paused on their
+   *   first frame), so they start the moment they come into play instead of loading then.
+   * - Let go: screens far away, or not needed for a while, release their video to free memory.
+   * - A screen whose video fails is retried later (10 s, 30 s, 60 s) instead of giving up for good.
+   */
   private updateVideos() {
     if (!this.store) return;
     const cap = this.quality === 'high' ? 4 : this.quality === 'balanced' ? 3 : 2;
+    const warm = this.quality === 'low' ? 2 : 3;
+    const now = performance.now();
     this.camera.updateMatrixWorld();
     this.videoProj.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     this.videoFrustum.setFromProjectionMatrix(this.videoProj);
     const sphere = new THREE.Sphere();
-    const ranked: { s: VideoScreen; score: number }[] = [];
+    const idle = this.paused || document.hidden;
+    const playable: { s: VideoScreen; score: number }[] = [];
+    const nearby: { s: VideoScreen; d: number }[] = [];
     for (const s of this.store.videoScreens) {
       const d = Math.hypot(s.center.x - this.pos.x, s.center.z - this.pos.z);
       const player = this.videos.get(s.id);
-      if (d > 60 && player) {
-        player.release();
-        this.videos.delete(s.id);
+      const failed = this.videoGaveUp.get(s.id);
+      if (failed && now < failed.until) continue;
+      if (d > 60) {
+        if (player) {
+          player.release();
+          this.videos.delete(s.id);
+        }
         continue;
       }
-      if (d >= 42 || this.paused || document.hidden || this.videoGaveUp.has(s.id)) continue;
+      nearby.push({ s, d });
+      if (d >= 42 || idle) continue;
       sphere.set(s.center, 1.8);
       const visible = this.videoFrustum.intersectsSphere(sphere);
       // on-screen screens first; the one already playing keeps its place unless another is clearly better
       let score = visible ? d : d + 40;
       if (player?.playing) score *= 0.8;
-      ranked.push({ s, score });
+      playable.push({ s, score });
     }
-    ranked.sort((a, b) => a.score - b.score);
-    const chosen = new Set(ranked.slice(0, cap).map((r) => r.s.id));
+    playable.sort((a, b) => a.score - b.score);
+    const chosen = new Set(playable.slice(0, cap).map((r) => r.s.id));
+    // get the closest of the rest ready ahead of time
+    const ready = new Set(
+      nearby
+        .filter((n) => !chosen.has(n.s.id))
+        .sort((a, b) => a.d - b.d)
+        .slice(0, warm)
+        .map((n) => n.s.id),
+    );
     for (const s of this.store.videoScreens) {
       let player = this.videos.get(s.id);
-      if (chosen.has(s.id)) {
+      const want = chosen.has(s.id) || ready.has(s.id);
+      if (want) {
+        this.videoWanted.set(s.id, now);
         if (!player) {
           player = new ScreenPlayer(s, () => {
             this.videos.get(s.id)?.release();
             this.videos.delete(s.id);
-            this.videoGaveUp.add(s.id);
+            const prev = this.videoGaveUp.get(s.id);
+            const tries = (prev?.tries || 0) + 1;
+            const wait = [10000, 30000, 60000][tries - 1];
+            // after three failed attempts the screen keeps its LED picture for this visit
+            this.videoGaveUp.set(s.id, { tries, until: wait ? performance.now() + wait : Infinity });
           });
           this.videos.set(s.id, player);
         }
-        player.play();
-      } else player?.pause();
+        if (chosen.has(s.id)) player.play();
+        else player.pause();
+      } else if (player) {
+        player.pause();
+        // not needed for a while: free the decoder and memory (it will be readied again when approached)
+        if (now - (this.videoWanted.get(s.id) || 0) > 25000) {
+          player.release();
+          this.videos.delete(s.id);
+        }
+      }
     }
   }
 
@@ -1376,9 +1419,9 @@ class ScreenPlayer {
     const clip: Clip = { i, video, texture, ready: false };
     video.addEventListener('loadeddata', () => {
       if (this.released) return;
-      fitVideoCover(texture, video, this.screen.mesh);
       clip.ready = true;
-      if (clip === this.cur) this.present(clip);
+      // a readied screen keeps its LED picture until it is asked to play, then switches at once
+      if (clip === this.cur && this.wantPlay) this.present(clip);
     });
     video.addEventListener('ended', () => {
       if (clip === this.cur) this.advance();
@@ -1386,12 +1429,17 @@ class ScreenPlayer {
     video.addEventListener('error', () => this.onError(clip));
     video.src = screenMediaUrl(this.list[i]);
     video.load();
+    // a clip that has not shown a frame after 30 s is treated as failed (the screen retries later)
+    window.setTimeout(() => {
+      if (!this.released && !clip.ready && (clip === this.cur || clip === this.next)) this.onError(clip);
+    }, 30000);
     return clip;
   }
 
   /** Put a clip on the screen and let go of the one it replaces. */
   private present(clip: Clip) {
     if (this.shown === clip) return;
+    fitVideoCover(clip.texture, clip.video, this.screen.mesh);
     const m = this.screen.mesh.material as THREE.MeshBasicMaterial;
     m.map = clip.texture;
     m.color.set('#ffffff');
@@ -1461,6 +1509,7 @@ class ScreenPlayer {
     this.wantPlay = true;
     this.playing = true;
     const v = this.cur.video;
+    if (this.cur.ready && this.shown !== this.cur) this.present(this.cur);
     if (v.paused && !v.ended) v.play().catch(() => {});
   }
 
